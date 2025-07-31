@@ -43,7 +43,7 @@ export default function Home() {
 
         <div className="w-full flex items-center justify-center px-4 pb-4">
           <PromptBox isLoading={isLoading} setIsLoading={setIsLoading} />
-        </div>{" "}
+        </div>
         <p className="text-xs absolute bottom-1 text-gray-500">
           AI-generated, for reference only
         </p>
