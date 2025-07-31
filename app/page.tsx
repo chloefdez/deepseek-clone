@@ -29,7 +29,7 @@ export default function Home() {
             <div className="flex flex-col items-center justify-center">
               <div className="flex items-center gap-3">
                 <Image src={assets.logo_icon} alt="" className="h-16" />
-                <p className="text-2xl font-medium">Hi, I'm Deepseek.</p>
+                <p className="text-2xl font-medium">Hi, I&apos;m Deepseek.</p>
               </div>
               <p className="text-sm mt-2">How can i help you today?</p>
             </div>
@@ -44,7 +44,7 @@ export default function Home() {
           <PromptBox isLoading={isLoading} setIsLoading={setIsLoading} />
         </div>
         <p className="text-xs absolute bottom-1 text-gray-500">
-          AI-generate, for reference only
+          AI-generated, for reference only
         </p>
       </div>
     </div>
