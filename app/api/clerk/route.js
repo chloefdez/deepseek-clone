@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
 export async function POST(req){
+    console.log("Clrk webhook route HIT")
     const wh = new Webhook(process.env.SIGNING_SECRET)
     const headerPayload = await headers()
     const svixHeaders = {
