@@ -5,7 +5,7 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
 export async function POST(req){
-    console.log("SINGING_SECRET:", process.env.SIGNING_SECRET);
+    console.log("SIGNING_SECRET:", process.env.SIGNING_SECRET);
     const wh = new Webhook(process.env.SIGNING_SECRET)
     const headerPayload = await headers()
     const svixHeaders = {
@@ -20,11 +20,13 @@ export async function POST(req){
     const body = JSON.stringify(payload);
     const {data, type} = wh.verify(body, svixHeaders)
 
-    // Prepare the suer data to be saved in the database
+    // Prepare the user data to be saved in the database
+
+    console.log("Webhook Data", data);
 
     const userData = {
       _id: data.id,
-      email: data.email_addresses[0].email_address,
+      email: data.email_addresses?.[0].email_address || "no email",
       name: `${data.first_name} ${data.last_name}`,
       image: data.image_url,
     };
