@@ -52,3 +52,5 @@ export async function POST(req){
 
     return NextResponse.json({message: "Event received"});
 }
+
+export const dynamic = 'force-dynamic';

@@ -6,11 +6,10 @@ export default async function connectDB() {
   if (cached.conn) return cached.conn;
 
   if (!cached.promise) {
+    console.log("🔌 Connecting to:", process.env.MONGODB_URI);
     cached.promise = mongoose
       .connect(process.env.MONGODB_URI, {
         dbName: "deepseek",
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
       })
       .then((mongoose) => {
         console.log("✅ MongoDB connected");
