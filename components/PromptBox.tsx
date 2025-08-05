@@ -17,12 +17,12 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
   const { user, chats, setChats, selectedChat, setSelectedChat } =
     useAppContext();
 
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        sendPrompt(e);
-      }
-    };
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendPrompt(e);
+    }
+  };
 
   const sendPrompt = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,7 +69,7 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
         const message = data.data.content;
         const messageTokens = message.split(" ");
 
-        let assistantMessage = {
+        const assistantMessage = {
           role: "assistant",
           content: "",
           timestamp: Date.now(),
@@ -115,8 +115,12 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
         toast.error(data.message);
         setPrompt(promptCopy);
       }
-    } catch (error: any) {
-      toast.error(error.message);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error("An unknown error occurred.");
+      }
       setPrompt(promptCopy);
     } finally {
       setIsLoading(false);
