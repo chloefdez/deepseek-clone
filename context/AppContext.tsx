@@ -14,7 +14,7 @@ import toast from "react-hot-toast";
 type Chat = {
   _id: string;
   name: string;
-  Messages: any[];
+  messages: any[];
   updatedAt: string;
 };
 
