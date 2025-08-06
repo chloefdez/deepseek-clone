@@ -6,6 +6,7 @@ import axios from "axios";
 import Image from "next/image";
 import React, { useState } from "react";
 import toast from "react-hot-toast";
+import { Chat, Message } from "@/context/types";
 
 type PromptBoxProps = {
   isLoading: boolean;
@@ -36,30 +37,22 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
       setIsLoading(true);
       setPrompt("");
 
-      const userPrompt = {
+      const userPrompt: Message = {
         role: "user",
         content: prompt,
         timestamp: Date.now(),
       };
 
-      // Update selected chat locally with user prompt
-      setChats((prevChats) =>
-        prevChats.map((chat) =>
-          chat._id === selectedChat?._id
-            ? { ...chat, messages: [...chat.messages, userPrompt] }
-            : chat
-        )
-      );
-
+      // 💬 Update selected chat locally with user prompt
       setSelectedChat((prev) => {
-        if (!prev || !prev.messages) return prev;
+        if (!prev || !prev.messages) return null;
+
         return {
           ...prev,
           messages: [...prev.messages, userPrompt],
         };
       });
 
-      // Call AI API
       const { data } = await axios.post("/api/chat/ai", {
         chatId: selectedChat?._id,
         prompt,
@@ -69,13 +62,12 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
         const message = data.data.content;
         const messageTokens = message.split(" ");
 
-        const assistantMessage = {
+        const assistantMessage: Message = {
           role: "assistant",
           content: "",
           timestamp: Date.now(),
         };
 
-        // Initialize empty assistant message
         setSelectedChat((prev) => {
           if (!prev || !prev.messages) return prev;
           return {
@@ -84,17 +76,18 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
           };
         });
 
-        // Simulate typing animation
         for (let i = 0; i < messageTokens.length; i++) {
           setTimeout(() => {
             assistantMessage.content = messageTokens.slice(0, i + 1).join(" ");
 
             setSelectedChat((prev) => {
               if (!prev || !prev.messages) return prev;
+
               const updatedMessages = [
                 ...prev.messages.slice(0, -1),
                 assistantMessage,
               ];
+
               return {
                 ...prev,
                 messages: updatedMessages,
@@ -103,7 +96,6 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
           }, i * 100);
         }
 
-        // Update chats context
         setChats((prevChats) =>
           prevChats.map((chat) =>
             chat._id === selectedChat?._id

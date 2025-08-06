@@ -10,18 +10,13 @@ import {
   ReactNode,
 } from "react";
 import toast from "react-hot-toast";
-
-type Chat = {
-  _id: string;
-  name: string;
-  messages: any[];
-  updatedAt: string;
-};
+import { UserResource } from "@clerk/types"
+import { Chat, Message } from "@/context/types";
 
 type AppContextType = {
   isLoading: boolean;
   setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
-  user: any;
+  user: UserResource | null | undefined;
   chats: Chat[];
   setChats: React.Dispatch<React.SetStateAction<Chat[]>>;
   selectedChat: Chat | null;
