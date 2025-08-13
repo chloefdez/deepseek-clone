@@ -8,10 +8,7 @@ import { useState } from "react";
 
 export default function Home() {
   const [expand, setExpand] = useState(false);
-  
-  const [messages] = useState<
-    Array<{ role: "user" | "assistant"; content: string }>
-  >([]);
+  const [messages] = useState<string[]>([]); 
   const [isLoading, setIsLoading] = useState(false);
 
   return (

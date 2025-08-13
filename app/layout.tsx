@@ -1,16 +1,12 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
+import "./globals.css";
 import { AppContextProvider } from "@/context/AppContext";
 import { Toaster } from "react-hot-toast";
 
-const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
-
-export const metadata: Metadata = {
+export const metadata = {
   title: "Deepseek Clone",
   description: "Full Stack Project",
-};
+} as const;
 
 export default function RootLayout({
   children,
@@ -20,7 +16,7 @@ export default function RootLayout({
   return (
     <ClerkProvider>
       <html lang="en">
-        <body className={`${inter.className} antialiased h-screen w-screen`}>
+        <body className="antialiased h-screen w-screen">
           <AppContextProvider>
             <Toaster
               toastOptions={{
