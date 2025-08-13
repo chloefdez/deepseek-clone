@@ -6,8 +6,8 @@ import axios from "axios";
 import Image from "next/image";
 import React, { useState } from "react";
 import toast from "react-hot-toast";
-import { Chat, Message } from "@/context/types";
-import { useAuth } from "@clerk/nextjs"; 
+import type { Chat, Message } from "@/context/types";
+import { useAuth } from "@clerk/nextjs";
 
 type PromptBoxProps = {
   isLoading: boolean;
@@ -17,96 +17,100 @@ type PromptBoxProps = {
 function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
   const [prompt, setPrompt] = useState("");
   const { user, setChats, selectedChat, setSelectedChat } = useAppContext();
-  const { getToken } = useAuth(); 
+  const { getToken } = useAuth();
 
-  // Pressing Enter submits; Shift+Enter makes a newline
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      sendPrompt(e);
+      void sendPrompt(e);
     }
   };
 
   const sendPrompt = async (e: React.FormEvent) => {
     e.preventDefault();
-    const promptCopy = prompt;
+
+    if (!user) return toast.error("Login to send message");
+    if (!selectedChat?._id) return toast.error("Open or create a chat first");
+    if (isLoading) return toast.error("Wait for the previous response");
+
+    const toSend = prompt.trim();
+    if (!toSend) return;
+
+    setIsLoading(true);
+    setPrompt("");
 
     try {
-      if (!user) return toast.error("Login to send message");
-      if (!selectedChat?._id) return toast.error("Open or create a chat first");
-      if (isLoading) return toast.error("Wait for the previous response");
-      if (!prompt.trim()) return;
-
-      setIsLoading(true);
-      setPrompt("");
-
       const userPrompt: Message = {
         role: "user",
-        content: promptCopy, // keep what the user actually typed
+        content: toSend,
         timestamp: Date.now(),
       };
 
-      // ✅ Optimistic UI: append the user's message locally
-      setSelectedChat((prev) => {
-        if (!prev) return prev;
-        return { ...prev, messages: [...prev.messages, userPrompt] };
-      });
+      setSelectedChat((prev) =>
+        prev ? { ...prev, messages: [...prev.messages, userPrompt] } : prev
+      );
 
-      // ✅ KEY FIX: include Clerk token so getAuth(req) resolves userId on the server
       const token = await getToken();
+      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+
       const { data } = await axios.post(
         "/api/chat/ai",
-        { chatId: selectedChat._id, prompt: promptCopy },
-        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+        { chatId: selectedChat._id, prompt: toSend },
+        headers ? { headers } : undefined
       );
 
-      if (data?.success) {
-        const full = data.data.content as string;
-        const tokens = full.split(" ");
-
-        const assistantMessage: Message = {
-          role: "assistant",
-          content: "",
-          timestamp: Date.now(),
-        };
-
-        setSelectedChat((prev) => {
-          if (!prev) return prev;
-          return { ...prev, messages: [...prev.messages, assistantMessage] };
-        });
-
-        for (let i = 0; i < tokens.length; i++) {
-          setTimeout(() => {
-            assistantMessage.content = tokens.slice(0, i + 1).join(" ");
-            setSelectedChat((prev) => {
-              if (!prev) return prev;
-              const updated = [...prev.messages];
-              updated[updated.length - 1] = assistantMessage;
-              return { ...prev, messages: updated };
-            });
-          }, i * 100);
-        }
-
-        setChats((prevChats) =>
-          prevChats.map((chat: Chat) =>
-            chat._id === selectedChat._id
-              ? { ...chat, messages: [...chat.messages, data.data] }
-              : chat
-          )
-        );
-      } else {
+      if (!data?.success) {
         toast.error(data?.message ?? "Failed to get a response");
-        setPrompt(promptCopy);
-        setSelectedChat((prev) => {
-          if (!prev) return prev;
-          return { ...prev, messages: prev.messages.slice(0, -1) };
-        });
+        setSelectedChat((prev) =>
+          prev ? { ...prev, messages: prev.messages.slice(0, -1) } : prev
+        );
+        setPrompt(toSend);
+        return;
       }
-    } catch (err: any) {
-      toast.error(
-        err?.response?.data?.message || err.message || "Unknown error"
+
+      const full: string = data.data?.content ?? "";
+      const tokens = full.split(" ");
+
+      const assistantMessage: Message = {
+        role: "assistant",
+        content: "",
+        timestamp: Date.now(),
+      };
+
+      setSelectedChat((prev) =>
+        prev
+          ? { ...prev, messages: [...prev.messages, assistantMessage] }
+          : prev
       );
-      setPrompt(promptCopy);
+
+      tokens.forEach((_, i) => {
+        setTimeout(() => {
+          assistantMessage.content = tokens.slice(0, i + 1).join(" ");
+          setSelectedChat((prev) => {
+            if (!prev) return prev;
+            const updated = [...prev.messages];
+            updated[updated.length - 1] = assistantMessage;
+            return { ...prev, messages: updated };
+          });
+        }, i * 100);
+      });
+
+      setChats((prev) =>
+        prev.map((chat: Chat) =>
+          chat._id === selectedChat._id
+            ? { ...chat, messages: [...chat.messages, data.data] }
+            : chat
+        )
+      );
+    } catch (err: unknown) {
+      const msg =
+        (typeof err === "object" &&
+          err &&
+          "message" in err &&
+          String((err as any).message)) ||
+        "Unknown error";
+      toast.error(msg);
+
       setSelectedChat((prev) => {
         if (!prev) return prev;
         const msgs = prev.messages;
@@ -115,6 +119,8 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
         }
         return prev;
       });
+
+      setPrompt(toSend);
     } finally {
       setIsLoading(false);
     }
@@ -171,7 +177,7 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
           />
           <button
             type="submit"
-            disabled={!prompt.trim() || isLoading} 
+            disabled={!prompt.trim() || isLoading}
             className={`${
               prompt ? "bg-primary" : "bg-[#71717a]"
             } rounded-full p-2 cursor-pointer disabled:opacity-60`}
