@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectDB from "../../../../config/db";
 import Chat from "../../../../models/Chat";
 
-export async function POST(_req: NextRequest) {
+export async function POST() {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -26,9 +26,6 @@ export async function POST(_req: NextRequest) {
   } catch (error: unknown) {
     const message =
       error instanceof Error ? error.message : "Server error";
-    return NextResponse.json(
-      { success: false, message },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, message }, { status: 500 });
   }
 }

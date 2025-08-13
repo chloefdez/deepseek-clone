@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import connectDB from "../../../../config/db";
 import Chat from "../../../../models/Chat";
 
-export async function POST(req: NextRequest) {
+export async function POST(_: NextRequest) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { chatId, name }: { chatId?: string; name?: string } = await req.json();
+    const { chatId, name }: { chatId?: string; name?: string } = await _.json();
     const trimmed = (name ?? "").trim();
 
     if (!chatId || !trimmed) {
