@@ -17,10 +17,14 @@ export async function GET(_req: NextRequest) {
 
     const data = await Chat.find({ userId }).sort({ updatedAt: -1 });
 
-    return NextResponse.json({ success: true, data }, { status: 200 });
-  } catch (error: any) {
     return NextResponse.json(
-      { success: false, message: error?.message ?? "Server error" },
+      { success: true, message: "Chat Deleted" },
+      { status: 200 }
+    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Server error";
+    return NextResponse.json(
+      { success: false, message },
       { status: 500 }
     );
   }

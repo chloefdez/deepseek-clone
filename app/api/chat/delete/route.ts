@@ -29,9 +29,10 @@ export async function POST(req: NextRequest) {
       { success: true, message: "Chat Deleted" },
       { status: 200 }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Server error";
     return NextResponse.json(
-      { success: false, message: error?.message ?? "Server error" },
+      { success: false, message },
       { status: 500 }
     );
   }

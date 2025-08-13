@@ -13,7 +13,7 @@ export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
-    const { userId } = await auth() as { userId: string | null };
+    const { userId } = await auth();
 
     if (!userId) {
       return NextResponse.json(
@@ -63,10 +63,8 @@ export async function POST(req: NextRequest) {
     await data.save();
 
     return NextResponse.json({ success: true, data: message }, { status: 200 });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, message: error?.message ?? "Server error" },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Server error";
+        return NextResponse.json({ success: false, message }, { status: 500 });
   }
 }

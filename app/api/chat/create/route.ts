@@ -23,9 +23,11 @@ export async function POST(_req: NextRequest) {
     });
 
     return NextResponse.json({ success: true, data: chat }, { status: 201 });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Server error";
     return NextResponse.json(
-      { success: false, message: error?.message ?? "Server error" },
+      { success: false, message },
       { status: 500 }
     );
   }

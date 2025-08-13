@@ -13,8 +13,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { chatId, name }: { chatId: string; name: string } = await req.json();
+    const { chatId, name }: { chatId?: string; name?: string } = await req.json();
     const trimmed = (name ?? "").trim();
+
     if (!chatId || !trimmed) {
       return NextResponse.json(
         { success: false, message: "chatId and name are required" },
@@ -23,6 +24,7 @@ export async function POST(req: NextRequest) {
     }
 
     await connectDB();
+
     const updated = await Chat.findOneAndUpdate(
       { _id: chatId, userId },
       { name: trimmed, updatedAt: new Date() },
@@ -37,10 +39,8 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true, data: updated }, { status: 200 });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, message: error?.message ?? "Server error" },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Server error";
+    return NextResponse.json({ success: false, message }, { status: 500 });
   }
 }
