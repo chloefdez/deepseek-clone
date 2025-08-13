@@ -1,90 +1,54 @@
-import React from "react";
-import Image from "next/image";
 import { assets } from "@/assets/assets";
-
-type OpenMenu = { id: number; open: boolean };
+import Image from "next/image";
+import React from "react";
 
 type ChatLabelProps = {
-  id: number; 
-  openMenu: OpenMenu;
-  setOpenMenu: React.Dispatch<React.SetStateAction<OpenMenu>>;
-  name?: string;
+  id: number;
+  isOpen: boolean;
+  setOpenMenu: React.Dispatch<
+    React.SetStateAction<{ id: number; open: boolean }>
+  >;
 };
 
-const ChatLabel: React.FC<ChatLabelProps> = ({
-  id,
-  openMenu,
-  setOpenMenu,
-  name = "Chat Name Here",
-}) => {
-  const isOpen = openMenu.open && openMenu.id === id;
-
-  const toggleMenu = () => {
+const ChatLabel: React.FC<ChatLabelProps> = ({ id, isOpen, setOpenMenu }) => {
+  const toggleMenu = (e: React.MouseEvent) => {
+    e.stopPropagation();
     setOpenMenu((prev) =>
       prev.id === id ? { id, open: !prev.open } : { id, open: true }
     );
   };
 
-  const closeMenu = () => setOpenMenu({ id, open: false });
+  const closeMenu = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpenMenu((prev) => (prev.id === id ? { id, open: false } : prev));
+  };
 
   return (
-    <div
-      className="group flex cursor-pointer items-center justify-between rounded-lg p-2 text-sm text-white/80 hover:bg-white/10"
-      onMouseLeave={closeMenu}
-    >
-      <p className="truncate group-hover:max-w-5/6">{name}</p>
+    <div className="flex items-center justify-between p-2 text-white/80 hover:bg-white/10 rounded-lg text-sm group cursor-pointer">
+      <p className="group-hover:max-w-5/6 truncate">Chat Name Here</p>
 
-      <div className="group relative flex h-6 w-6 items-center justify-center rounded-lg hover:bg-black/80">
+      <div className="group relative flex items-center justify-center h-6 w-6 aspect-square hover:bg-black/80 rounded-lg">
         <Image
           src={assets.three_dots}
-          alt="menu"
-          width={16}
-          height={16}
-          className={`w-4 ${isOpen ? "" : "hidden"} group-hover:block`}
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleMenu();
-          }}
+          alt=""
+          className="w-4 group-hover:block"
+          onClick={toggleMenu}
         />
 
         <div
-          className={`absolute -right-36 top-6 w-max rounded-xl bg-gray-700 p-2 ${
+          className={`absolute -right-36 top-6 bg-gray-700 rounded-xl w-max p-2 ${
             isOpen ? "" : "hidden"
           }`}
+          onClick={closeMenu}
         >
-          <button
-            className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-white/10"
-            onClick={(e) => {
-              e.stopPropagation();
-              // TODO: wire rename modal/action here
-              closeMenu();
-            }}
-          >
-            <Image
-              src={assets.pencil_icon}
-              alt="rename"
-              width={16}
-              height={16}
-            />
+          <div className="flex items-center gap-3 hover:bg-white/10 px-3 py-2 rounded-lg">
+            <Image src={assets.pencil_icon} alt="" className="w-4" />
             <p>Rename</p>
-          </button>
-
-          <button
-            className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-white/10"
-            onClick={(e) => {
-              e.stopPropagation();
-              // TODO: call delete API here
-              closeMenu();
-            }}
-          >
-            <Image
-              src={assets.delete_icon}
-              alt="delete"
-              width={16}
-              height={16}
-            />
+          </div>
+          <div className="flex items-center gap-3 hover:bg-white/10 px-3 py-2 rounded-lg">
+            <Image src={assets.delete_icon} alt="" className="w-4" />
             <p>Delete</p>
-          </button>
+          </div>
         </div>
       </div>
     </div>

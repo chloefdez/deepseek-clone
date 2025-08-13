@@ -14,7 +14,7 @@ type PromptBoxProps = {
   setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
-function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
+export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
   const [prompt, setPrompt] = useState("");
   const { user, setChats, selectedChat, setSelectedChat } = useAppContext();
   const { getToken } = useAuth();
@@ -34,7 +34,7 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
       if (!user) return toast.error("Login to send message");
       if (!selectedChat?._id) return toast.error("Open or create a chat first");
       if (isLoading) return toast.error("Wait for the previous response");
-      if (!prompt.trim()) return;
+      if (!promptCopy.trim()) return;
 
       setIsLoading(true);
       setPrompt("");
@@ -45,10 +45,9 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
         timestamp: Date.now(),
       };
 
-      setSelectedChat((prev) => {
-        if (!prev) return prev;
-        return { ...prev, messages: [...prev.messages, userPrompt] };
-      });
+      setSelectedChat((prev) =>
+        prev ? { ...prev, messages: [...prev.messages, userPrompt] } : prev
+      );
 
       const token = await getToken();
       const { data } = await axios.post(
@@ -58,7 +57,7 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
       );
 
       if (data?.success) {
-        const full: string = String(data.data.content ?? "");
+        const full: string = data.data.content;
         const tokens = full.split(" ");
 
         const assistantMessage: Message = {
@@ -67,12 +66,13 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
           timestamp: Date.now(),
         };
 
-        setSelectedChat((prev) => {
-          if (!prev) return prev;
-          return { ...prev, messages: [...prev.messages, assistantMessage] };
-        });
+        setSelectedChat((prev) =>
+          prev
+            ? { ...prev, messages: [...prev.messages, assistantMessage] }
+            : prev
+        );
 
-        for (let i = 0; i < tokens.length; i++) {
+        tokens.forEach((_t, i) => {
           setTimeout(() => {
             assistantMessage.content = tokens.slice(0, i + 1).join(" ");
             setSelectedChat((prev) => {
@@ -82,13 +82,13 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
               return { ...prev, messages: updated };
             });
           }, i * 100);
-        }
+        });
 
-        setChats((prevChats) =>
-          prevChats.map((chat: Chat) =>
-            chat._id === selectedChat._id
-              ? { ...chat, messages: [...chat.messages, data.data] }
-              : chat
+        setChats((prev) =>
+          prev.map((c: Chat) =>
+            c._id === selectedChat._id
+              ? { ...c, messages: [...c.messages, data.data] }
+              : c
           )
         );
       } else {
@@ -99,13 +99,13 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
           return { ...prev, messages: prev.messages.slice(0, -1) };
         });
       }
-    } catch (err: unknown) {
-      const msg = axios.isAxiosError(err)
-        ? err.response?.data?.message || err.message
-        : (err as Error)?.message || "Unknown error";
-      toast.error(msg);
-
-      setPrompt(promptCopy);
+    } catch (error: unknown) {
+      const message =
+        typeof error === "object" && error && "message" in error
+          ? String((error as { message?: unknown }).message)
+          : "Unknown error";
+      toast.error(message);
+      setPrompt(prompt);
       setSelectedChat((prev) => {
         if (!prev) return prev;
         const msgs = prev.messages;
@@ -188,5 +188,3 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
     </form>
   );
 }
-
-export default PromptBox;
