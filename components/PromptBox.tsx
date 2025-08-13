@@ -2,12 +2,12 @@
 
 import { assets } from "@/assets/assets";
 import { useAppContext } from "@/context/AppContext";
+import type { Chat, Message } from "@/context/types";
+import { useAuth } from "@clerk/nextjs";
 import axios from "axios";
 import Image from "next/image";
 import React, { useState } from "react";
 import toast from "react-hot-toast";
-import type { Chat, Message } from "@/context/types";
-import { useAuth } from "@clerk/nextjs";
 
 type PromptBoxProps = {
   isLoading: boolean;
@@ -28,89 +28,84 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
 
   const sendPrompt = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!user) return toast.error("Login to send message");
-    if (!selectedChat?._id) return toast.error("Open or create a chat first");
-    if (isLoading) return toast.error("Wait for the previous response");
-
-    const toSend = prompt.trim();
-    if (!toSend) return;
-
-    setIsLoading(true);
-    setPrompt("");
+    const promptCopy = prompt;
 
     try {
+      if (!user) return toast.error("Login to send message");
+      if (!selectedChat?._id) return toast.error("Open or create a chat first");
+      if (isLoading) return toast.error("Wait for the previous response");
+      if (!prompt.trim()) return;
+
+      setIsLoading(true);
+      setPrompt("");
+
       const userPrompt: Message = {
         role: "user",
-        content: toSend,
+        content: promptCopy,
         timestamp: Date.now(),
       };
 
-      setSelectedChat((prev) =>
-        prev ? { ...prev, messages: [...prev.messages, userPrompt] } : prev
-      );
-
-      const token = await getToken();
-      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-
-      const { data } = await axios.post(
-        "/api/chat/ai",
-        { chatId: selectedChat._id, prompt: toSend },
-        headers ? { headers } : undefined
-      );
-
-      if (!data?.success) {
-        toast.error(data?.message ?? "Failed to get a response");
-        setSelectedChat((prev) =>
-          prev ? { ...prev, messages: prev.messages.slice(0, -1) } : prev
-        );
-        setPrompt(toSend);
-        return;
-      }
-
-      const full: string = data.data?.content ?? "";
-      const tokens = full.split(" ");
-
-      const assistantMessage: Message = {
-        role: "assistant",
-        content: "",
-        timestamp: Date.now(),
-      };
-
-      setSelectedChat((prev) =>
-        prev
-          ? { ...prev, messages: [...prev.messages, assistantMessage] }
-          : prev
-      );
-
-      tokens.forEach((_, i) => {
-        setTimeout(() => {
-          assistantMessage.content = tokens.slice(0, i + 1).join(" ");
-          setSelectedChat((prev) => {
-            if (!prev) return prev;
-            const updated = [...prev.messages];
-            updated[updated.length - 1] = assistantMessage;
-            return { ...prev, messages: updated };
-          });
-        }, i * 100);
+      setSelectedChat((prev) => {
+        if (!prev) return prev;
+        return { ...prev, messages: [...prev.messages, userPrompt] };
       });
 
-      setChats((prev) =>
-        prev.map((chat: Chat) =>
-          chat._id === selectedChat._id
-            ? { ...chat, messages: [...chat.messages, data.data] }
-            : chat
-        )
+      const token = await getToken();
+      const { data } = await axios.post(
+        "/api/chat/ai",
+        { chatId: selectedChat._id, prompt: promptCopy },
+        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
       );
+
+      if (data?.success) {
+        const full: string = String(data.data.content ?? "");
+        const tokens = full.split(" ");
+
+        const assistantMessage: Message = {
+          role: "assistant",
+          content: "",
+          timestamp: Date.now(),
+        };
+
+        setSelectedChat((prev) => {
+          if (!prev) return prev;
+          return { ...prev, messages: [...prev.messages, assistantMessage] };
+        });
+
+        for (let i = 0; i < tokens.length; i++) {
+          setTimeout(() => {
+            assistantMessage.content = tokens.slice(0, i + 1).join(" ");
+            setSelectedChat((prev) => {
+              if (!prev) return prev;
+              const updated = [...prev.messages];
+              updated[updated.length - 1] = assistantMessage;
+              return { ...prev, messages: updated };
+            });
+          }, i * 100);
+        }
+
+        setChats((prevChats) =>
+          prevChats.map((chat: Chat) =>
+            chat._id === selectedChat._id
+              ? { ...chat, messages: [...chat.messages, data.data] }
+              : chat
+          )
+        );
+      } else {
+        toast.error(data?.message ?? "Failed to get a response");
+        setPrompt(promptCopy);
+        setSelectedChat((prev) => {
+          if (!prev) return prev;
+          return { ...prev, messages: prev.messages.slice(0, -1) };
+        });
+      }
     } catch (err: unknown) {
-      const msg =
-        (typeof err === "object" &&
-          err &&
-          "message" in err &&
-          String((err as any).message)) ||
-        "Unknown error";
+      const msg = axios.isAxiosError(err)
+        ? err.response?.data?.message || err.message
+        : (err as Error)?.message || "Unknown error";
       toast.error(msg);
 
+      setPrompt(promptCopy);
       setSelectedChat((prev) => {
         if (!prev) return prev;
         const msgs = prev.messages;
@@ -119,8 +114,6 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
         }
         return prev;
       });
-
-      setPrompt(toSend);
     } finally {
       setIsLoading(false);
     }
