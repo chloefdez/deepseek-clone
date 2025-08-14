@@ -1,12 +1,11 @@
+import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
-import { AppContextProvider } from "@/context/AppContext";
-import { Toaster } from "react-hot-toast";
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "Deepseek Clone",
-  description: "Full Stack Project",
-} as const;
+  description: "AI chat app",
+};
 
 export default function RootLayout({
   children,
@@ -16,17 +15,7 @@ export default function RootLayout({
   return (
     <ClerkProvider>
       <html lang="en">
-        <body className="antialiased h-screen w-screen">
-          <AppContextProvider>
-            <Toaster
-              toastOptions={{
-                success: { style: { background: "black", color: "white" } },
-                error: { style: { background: "black", color: "white" } },
-              }}
-            />
-            {children}
-          </AppContextProvider>
-        </body>
+        <body className="bg-[#0f1115] text-white antialiased">{children}</body>
       </html>
     </ClerkProvider>
   );

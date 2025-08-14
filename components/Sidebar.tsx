@@ -1,68 +1,96 @@
+"use client";
+
 import React, { useState } from "react";
 import Image from "next/image";
 import { assets } from "@/assets/assets";
 import { useClerk, useUser, UserButton } from "@clerk/nextjs";
 import ChatLabel from "./ChatLabel";
+import { useAppContext } from "@/context/AppContext";
 
 type SidebarProps = {
   expand: boolean;
   setExpand: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
-const Sidebar = ({ expand, setExpand }: SidebarProps) => {
-    const { openSignIn } = useClerk()
-    const { user } = useUser();
-    const [ openMenu, setOpenMenu ] = useState({id: 0, open: false})
+export default function Sidebar({ expand, setExpand }: SidebarProps) {
+  const { openSignIn } = useClerk();
+  const { user } = useUser();
+  const { chats } = useAppContext();
+
+  const [openMenu, setOpenMenu] = useState<{
+    id: string | null;
+    open: boolean;
+  }>({ id: null, open: false });
+
+  const handleToggleMenu = (
+    e: React.MouseEvent<HTMLDivElement | HTMLButtonElement>,
+    id: string
+  ) => {
+    e.stopPropagation();
+    setOpenMenu((prev) =>
+      prev.id === id ? { id, open: !prev.open } : { id, open: true }
+    );
+  };
+
+  const handleCloseMenu = () => setOpenMenu({ id: null, open: false });
 
   return (
     <div
-      className={`flex flex-col bg-[#212327] pt-7 transition-all z-50 
+      className={`z-50 flex flex-col bg-[#212327] pt-7 transition-all
       max-md:absolute max-md:h-screen h-full ${
-        expand ? "p-4 w-64" : "md:w-20 w-0 max-md:overflow-hidden"
+        expand ? "w-64 p-4" : "w-0 max-md:overflow-hidden md:w-20"
       }`}
     >
-      {/* Outer container split: top and bottom */}
-      <div className="flex flex-col justify-between h-full">
-        {/* 🔝 TOP SECTION: logo, toggle, new chat, recents */}
+      <div className="flex h-full flex-col justify-between">
+        {/* ========== TOP ========== */}
         <div className="flex flex-col gap-8">
+          {/* Logo + Toggle */}
           <div
             className={`flex ${
               expand
-                ? "flex-row items-center justify-between gap-4 w-full"
+                ? "w-full flex-row items-center justify-between gap-4"
                 : "flex-col items-center gap-8"
             }`}
           >
-            {/* Logo */}
             <Image
               className={expand ? "w-36" : "w-10"}
               src={expand ? assets.logo_text : assets.logo_icon}
-              alt="logo"
+              alt="Deepseek"
+              width={expand ? 144 : 40}
+              height={expand ? 36 : 40}
+              priority
             />
 
-            {/* Toggle Button */}
             <div
               onClick={() => setExpand(!expand)}
-              className="group relative flex items-center justify-center hover:bg-gray-500/20 transition-all duration-300 h-9 w-9 aspect-square rounded-lg cursor-pointer"
+              className="group relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg transition-all duration-300 hover:bg-gray-500/20"
             >
-              {/* Mobile Menu Icon */}
-              <Image src={assets.menu_icon} alt="menu" className="md:hidden" />
-
-              {/* Desktop Sidebar Toggle Icon */}
+              {/* mobile hamburger */}
+              <Image
+                src={assets.menu_icon}
+                alt="menu"
+                className="md:hidden"
+                width={20}
+                height={20}
+              />
+              {/* desktop toggle */}
               <Image
                 src={expand ? assets.sidebar_close_icon : assets.sidebar_icon}
-                alt="sidebar toggle"
-                className="hidden md:block w-7"
+                alt="toggle sidebar"
+                className="hidden w-7 md:block"
+                width={28}
+                height={28}
               />
 
-              {/* Tooltip */}
+              {/* tooltip */}
               <div
-                className={`absolute w-max ${
-                  expand ? "left-1/2 -translate-x-1/2 top-12" : "-top-12 left-0"
-                } opacity-0 group-hover:opacity-100 transition bg-black text-white text-sm px-3 py-2 rounded-lg shadow-lg pointer-events-none`}
+                className={`pointer-events-none absolute w-max rounded-lg bg-black px-3 py-2 text-sm text-white opacity-0 shadow-lg transition group-hover:opacity-100 ${
+                  expand ? "left-1/2 top-12 -translate-x-1/2" : "-top-12 left-0"
+                }`}
               >
                 {expand ? "Close sidebar" : "Open sidebar"}
                 <div
-                  className={`w-3 h-3 absolute bg-black rotate-45 ${
+                  className={`absolute h-3 w-3 rotate-45 bg-black ${
                     expand
                       ? "left-1/2 -top-1.5 -translate-x-1/2"
                       : "left-4 -bottom-1.5"
@@ -72,90 +100,129 @@ const Sidebar = ({ expand, setExpand }: SidebarProps) => {
             </div>
           </div>
 
-          {/* New Chat Button */}
+          {/* New chat */}
           <button
-            className={`flex items-center justify-center cursor-pointer ${
+            className={`group relative flex cursor-pointer items-center justify-center ${
               expand
-                ? "bg-primary hover:opacity-90 rounded-2xl gap-2 p-2.5 w-max"
-                : "group relative h-9 w-9 mx-auto hover:bg-gray-500/30 rounded-lg"
+                ? "w-max gap-2 rounded-2xl bg-primary p-2.5 hover:opacity-90"
+                : "mx-auto h-9 w-9 rounded-lg hover:bg-gray-500/30"
             }`}
           >
             <Image
               className={expand ? "w-6" : "w-7"}
               src={expand ? assets.chat_icon : assets.chat_icon_dull}
-              alt=""
+              alt="new chat"
+              width={expand ? 24 : 28}
+              height={expand ? 24 : 28}
             />
-            <div
-              className="absolute w-max -top-12 -right-12 opacity-0 group-hover:opacity-100 transition bg-black text-white text-sm px-3
-              py-2 rounded-lg shadow-lg pointer-events-none"
-            >
-              New Chat
-              <div className="w-3 h-3 absolute bg-black rotate-45 left-4 -bottom-1.5"></div>
-            </div>
-            {expand && <p className="text-white text font-medium">New Chat</p>}
+            {!expand && (
+              <div className="pointer-events-none absolute -right-12 -top-12 w-max rounded-lg bg-black px-3 py-2 text-sm text-white opacity-0 shadow-lg transition group-hover:opacity-100">
+                New Chat
+                <div className="absolute -bottom-1.5 left-4 h-3 w-3 rotate-45 bg-black" />
+              </div>
+            )}
+            {expand && <p className="font-medium text-white">New Chat</p>}
           </button>
 
-          {/* Recents Label */}
+          {/* Recents */}
           {expand && (
-            <div className="mt-8 text-white/25 text-sm">
+            <div className="mt-8 text-sm text-white/25">
               <p className="my-1">Recents</p>
-              <ChatLabel openMenu={openMenu} setOpenMenu={setOpenMenu} />
+              <div className="space-y-1">
+                {Array.isArray(chats) && chats.length > 0 ? (
+                  (chats as Array<{ _id: string }>).map((c) => {
+                    const id =
+                      typeof c._id === "string" ? c._id : String(c._id);
+                    return (
+                      <ChatLabel
+                        key={id}
+                        id={id}
+                        isOpen={openMenu.open && openMenu.id === id}
+                        toggleMenu={(
+                          e: React.MouseEvent<
+                            HTMLDivElement | HTMLButtonElement
+                          >
+                        ) => handleToggleMenu(e, id)}
+                        closeMenu={handleCloseMenu}
+                      />
+                    );
+                  })
+                ) : (
+                  <p className="text-xs text-white/40">No chats yet</p>
+                )}
+              </div>
             </div>
           )}
         </div>
 
-        {/* ⬇️ BOTTOM SECTION: Get App + My Profile */}
+        {/* ========== BOTTOM ========== */}
         <div className="flex flex-col gap-2">
-          {/* Get App Button */}
+          {/* Get App */}
           <div
-            className={`flex items-center cursor-pointer group relative ${
+            className={`group relative flex cursor-pointer items-center ${
               expand
-                ? "gap-1 text-white/80 text-sm p-2.5 border border-primary rounded-lg hover:bg-white/10"
-                : "h-10 w-10 mx-auto hover:bg-gray-500/30 rounded-lg"
+                ? "gap-1 rounded-lg border border-primary p-2.5 text-sm text-white/80 hover:bg-white/10"
+                : "mx-auto h-10 w-10 rounded-lg hover:bg-gray-500/30"
             }`}
           >
             <Image
-              className={expand ? "w-5" : "w-6.5 mx-auto"}
+              className={expand ? "w-5" : "mx-auto w-6"}
               src={expand ? assets.phone_icon : assets.phone_icon_dull}
-              alt=""
+              alt="get app"
+              width={expand ? 20 : 24}
+              height={expand ? 20 : 24}
             />
+
+            {/* QR tooltip */}
             <div
-              className={`absolute -top-60 pb-8 ${
-                !expand && "-right-40"
-              } opacity-0 group-hover:opacity-100 hidden group-hover:block transition`}
+              className={`absolute hidden w-max opacity-0 transition group-hover:block group-hover:opacity-100 ${
+                expand ? "-top-60 pb-8" : "-top-60 -right-40 pb-8"
+              }`}
             >
-              <div className="relative w-max bg-black text-white text-sm p-3 rounded-lg shadow-lg">
-                <Image src={assets.qrcode} alt="QR" className="w-44" />
+              <div className="relative w-max rounded-lg bg-black p-3 text-sm text-white shadow-lg">
+                <Image
+                  src={assets.qrcode}
+                  alt="QR"
+                  className="w-44"
+                  width={176}
+                  height={176}
+                />
                 <p>Scan to get DeepSeek App</p>
                 <div
-                  className={`w-3 h-3 absolute bg-black rotate-45 
-                  ${expand ? "right-1/2" : "left-4"} -bottom-1.5`}
-                ></div>
+                  className={`absolute -bottom-1.5 h-3 w-3 rotate-45 bg-black ${
+                    expand ? "right-1/2" : "left-4"
+                  }`}
+                />
               </div>
             </div>
+
             {expand && (
               <>
-                <span>Get App</span> <Image alt="" src={assets.new_icon} />
+                <span>Get App</span>
+                <Image alt="" src={assets.new_icon} width={18} height={18} />
               </>
             )}
           </div>
 
-          {/* My Profile Button */}
+          {/* My Profile */}
           <div
             onClick={() => {
-                if (!user) {
-                    openSignIn();
-                }
+              if (!user) openSignIn();
             }}
-            // onClick={!user ? () => openSignIn() : undefined}
-            className={`flex items-center ${
-              expand ? "hover:bg-white/10 rounded-lg" : "justify-center w-full"
-            } gap-3 text-white/60 text-sm p-2 cursor-pointer`}
+            className={`flex cursor-pointer items-center gap-3 p-2 text-sm text-white/60 ${
+              expand ? "rounded-lg hover:bg-white/10" : "w-full justify-center"
+            }`}
           >
             {user ? (
               <UserButton />
             ) : (
-              <Image src={assets.profile_icon} alt="" className="w-7" />
+              <Image
+                src={assets.profile_icon}
+                alt="profile"
+                className="w-7"
+                width={28}
+                height={28}
+              />
             )}
             {expand && <span>My Profile</span>}
           </div>
@@ -163,6 +230,4 @@ const Sidebar = ({ expand, setExpand }: SidebarProps) => {
       </div>
     </div>
   );
-};
-
-export default Sidebar;
+}

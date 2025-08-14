@@ -1,58 +1,50 @@
-import { assets } from "@/assets/assets";
-import Image from "next/image";
+"use client";
+
 import React from "react";
 
 type ChatLabelProps = {
-  id: number;
+  id: string;
   isOpen: boolean;
-  setOpenMenu: React.Dispatch<
-    React.SetStateAction<{ id: number; open: boolean }>
-  >;
+  toggleMenu: (e: React.MouseEvent<HTMLDivElement | HTMLButtonElement>) => void;
+  closeMenu: () => void;
 };
 
-const ChatLabel: React.FC<ChatLabelProps> = ({ id, isOpen, setOpenMenu }) => {
-  const toggleMenu = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setOpenMenu((prev) =>
-      prev.id === id ? { id, open: !prev.open } : { id, open: true }
-    );
-  };
-
-  const closeMenu = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setOpenMenu((prev) => (prev.id === id ? { id, open: false } : prev));
-  };
-
+export default function ChatLabel({
+  id,
+  isOpen,
+  toggleMenu,
+  closeMenu,
+}: ChatLabelProps) {
   return (
-    <div className="flex items-center justify-between p-2 text-white/80 hover:bg-white/10 rounded-lg text-sm group cursor-pointer">
-      <p className="group-hover:max-w-5/6 truncate">Chat Name Here</p>
+    <div className="group relative flex items-center justify-between rounded-lg px-2 py-2 hover:bg-white/5">
+      <span className="truncate text-sm text-white/80">
+        Chat {id.slice(-6)}
+      </span>
 
-      <div className="group relative flex items-center justify-center h-6 w-6 aspect-square hover:bg-black/80 rounded-lg">
-        <Image
-          src={assets.three_dots}
-          alt=""
-          className="w-4 group-hover:block"
-          onClick={toggleMenu}
-        />
+      <button
+        type="button"
+        onClick={toggleMenu}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        className="rounded px-2 py-1 text-lg leading-none opacity-0 hover:bg-white/10 group-hover:opacity-100"
+      >
+        ⋯
+      </button>
 
+      {isOpen && (
         <div
-          className={`absolute -right-36 top-6 bg-gray-700 rounded-xl w-max p-2 ${
-            isOpen ? "" : "hidden"
-          }`}
-          onClick={closeMenu}
+          role="menu"
+          className="absolute right-2 top-9 z-10 w-28 rounded-md border border-white/10 bg-[#1a1b1e] p-1 text-sm text-white/80 shadow-xl"
+          onMouseLeave={closeMenu}
         >
-          <div className="flex items-center gap-3 hover:bg-white/10 px-3 py-2 rounded-lg">
-            <Image src={assets.pencil_icon} alt="" className="w-4" />
-            <p>Rename</p>
-          </div>
-          <div className="flex items-center gap-3 hover:bg-white/10 px-3 py-2 rounded-lg">
-            <Image src={assets.delete_icon} alt="" className="w-4" />
-            <p>Delete</p>
-          </div>
+          <button className="block w-full rounded px-2 py-1 text-left hover:bg-white/10">
+            Rename
+          </button>
+          <button className="block w-full rounded px-2 py-1 text-left hover:bg-white/10">
+            Delete
+          </button>
         </div>
-      </div>
+      )}
     </div>
   );
-};
-
-export default ChatLabel;
+}

@@ -1,70 +1,55 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import Chat from "../../../../models/Chat";
-import connectDB from "../../../../config/db";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
-const openai = new OpenAI({
-  baseURL: "https://api.deepseek.com",
-  apiKey: process.env.DEEPSEEK_API_KEY!,
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 30;
+
+const client = new OpenAI({
+  apiKey: process.env.DEEPSEEK_API_KEY,
+  baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
 });
 
-export const maxDuration = 60;
+// Your UI can send either `messages` or a single `prompt`
+type Msg = { role: "system" | "user" | "assistant"; content: string };
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const { userId } = await auth();
-
-    if (!userId) {
+    if (!process.env.DEEPSEEK_API_KEY) {
       return NextResponse.json(
-        { success: false, message: "User not authenticated" },
-        { status: 401 }
+        { error: "Missing DEEPSEEK_API_KEY" },
+        { status: 500 }
       );
     }
 
-    const { chatId, prompt }: { chatId: string; prompt: string } = await req.json();
+    const body = (await req.json()) as { messages?: Msg[]; prompt?: string };
 
-    if (!chatId || !prompt?.trim()) {
-      return NextResponse.json(
-        { success: false, message: "chatId and prompt are required" },
-        { status: 400 }
-      );
-    }
+    const raw: Msg[] =
+      body?.messages && body.messages.length
+        ? body.messages
+        : [{ role: "user", content: body?.prompt ?? "Say hello" }];
 
-    await connectDB();
+    // ✅ Ensure correct type for the SDK
+    const messages: ChatCompletionMessageParam[] = raw.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
 
-    const data = await Chat.findOne({ userId, _id: chatId });
-    if (!data) {
-      return NextResponse.json(
-        { success: false, message: "Chat not found" },
-        { status: 404 }
-      );
-    }
-
-    const userPrompt = {
-      role: "user" as const,
-      content: prompt,
-      timestamp: Date.now(),
-    };
-    data.messages.push(userPrompt);
-
-    const completion = await openai.chat.completions.create({
-      messages: [{ role: "user", content: prompt }],
+    const completion = await client.chat.completions.create({
       model: "deepseek-chat",
-      store: true,
+      messages,
+      temperature: 0.7,
     });
 
-    const message = {
-      ...completion.choices[0].message,
-      timestamp: Date.now(),
-    };
-
-    data.messages.push(message);
-    await data.save();
-
-    return NextResponse.json({ success: true, data: message }, { status: 200 });
-  } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : "Server error";
-        return NextResponse.json({ success: false, message }, { status: 500 });
-  }
+    const content = completion.choices?.[0]?.message?.content ?? "";
+    return NextResponse.json({ content });
+} catch (err: unknown) {
+  const message =
+    err instanceof Error ? err.message :
+    typeof err === "string" ? err :
+    "Unknown error";
+  console.error("chat/ai error:", err);
+  return NextResponse.json({ error: message }, { status: 500 });
+}
 }
