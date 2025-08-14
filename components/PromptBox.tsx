@@ -26,7 +26,9 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
     }
   };
 
-  const sendPrompt = async (e: React.FormEvent) => {
+  const sendPrompt = async (
+    e: React.FormEvent | React.KeyboardEvent<HTMLTextAreaElement>
+  ) => {
     e.preventDefault();
     const promptCopy = prompt;
 
@@ -50,15 +52,24 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
         return { ...prev, messages: [...prev.messages, userPrompt] };
       });
 
+      const history =
+        selectedChat?.messages?.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })) ?? [];
+      const apiMessages = [...history, { role: "user", content: promptCopy }];
+
       const token = await getToken();
+
       const { data } = await axios.post(
         "/api/chat/ai",
-        { chatId: selectedChat!._id, prompt: promptCopy },
+        { messages: apiMessages },
         token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
       );
 
-      if (data?.success) {
-        const full: string = data.data.content;
+      const full: string | undefined = data?.content;
+
+      if (typeof full === "string" && full.length > 0) {
         const tokens = full.split(" ");
 
         const assistantMessage: Message = {
@@ -87,12 +98,19 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
         setChats((prevChats) =>
           prevChats.map((chat: Chat) =>
             chat._id === selectedChat!._id
-              ? { ...chat, messages: [...chat.messages, data.data] }
+              ? {
+                  ...chat,
+                  messages: [
+                    ...chat.messages,
+                    userPrompt,
+                    { ...assistantMessage, content: full },
+                  ],
+                }
               : chat
           )
         );
       } else {
-        toast.error(data?.message ?? "Failed to get a response");
+        toast.error("Failed to get a response");
         setPrompt(promptCopy);
         setSelectedChat((prev) => {
           if (!prev) return prev;
