@@ -7,17 +7,37 @@ import Image from "next/image";
 import React, { useState } from "react";
 import toast from "react-hot-toast";
 import type { Chat, Message } from "@/context/types";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 
 type PromptBoxProps = {
   isLoading: boolean;
   setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
-function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
+export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
   const [prompt, setPrompt] = useState("");
-  const { user, setChats, selectedChat, setSelectedChat } = useAppContext();
+  const { setChats, selectedChat, setSelectedChat } = useAppContext();
   const { getToken } = useAuth();
+  const { isSignedIn } = useUser();
+
+  // create a chat if one isn't open
+  const ensureChat = async () => {
+    if (selectedChat?._id) return selectedChat;
+
+    const token = await getToken();
+    const res = await axios.post(
+      "/api/chat/create",
+      { title: prompt.slice(0, 60) || "New chat" },
+      token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+    );
+
+    const created: Chat = res.data?.data ?? res.data?.chat ?? res.data;
+    if (!created?._id) throw new Error("Failed to create chat");
+
+    setChats((prev: Chat[]) => [created, ...prev]);
+    setSelectedChat(created);
+    return created;
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -33,90 +53,139 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
     const promptCopy = prompt;
 
     try {
-      if (!user) return toast.error("Login to send message");
-      if (!selectedChat?._id) return toast.error("Open or create a chat first");
+      if (!isSignedIn) return toast.error("Login to send message");
       if (isLoading) return toast.error("Wait for the previous response");
       if (!prompt.trim()) return;
 
       setIsLoading(true);
       setPrompt("");
 
+      // 1) make sure we have a chat
+      const chat = await ensureChat();
+
+      // 2) optimistic user bubble in the open chat
       const userPrompt: Message = {
         role: "user",
         content: promptCopy,
         timestamp: Date.now(),
       };
-
-      setSelectedChat((prev) => {
-        if (!prev) return prev;
-        return { ...prev, messages: [...prev.messages, userPrompt] };
-      });
-
-      const history =
-        selectedChat?.messages?.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })) ?? [];
-      const apiMessages = [...history, { role: "user", content: promptCopy }];
-
-      const token = await getToken();
-
-      const { data } = await axios.post(
-        "/api/chat/ai",
-        { messages: apiMessages },
-        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+      setSelectedChat((prev) =>
+        prev ? { ...prev, messages: [...prev.messages, userPrompt] } : prev
       );
 
-      const full: string | undefined = data?.content;
+      // 3) prepare API messages (history + new user message)
+      const history =
+        chat?.messages?.map((m) => ({ role: m.role, content: m.content })) ??
+        [];
+      const apiMessages = [...history, { role: "user", content: promptCopy }];
 
-      if (typeof full === "string" && full.length > 0) {
-        const tokens = full.split(" ");
+      // 4) call /api/chat/ai (with a generous timeout)
+      const token = await getToken();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60_000);
 
-        const assistantMessage: Message = {
-          role: "assistant",
-          content: "",
-          timestamp: Date.now(),
-        };
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (token) headers.Authorization = `Bearer ${token}`;
 
+      const res = await fetch("/api/chat/ai", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ messages: apiMessages }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok || typeof data?.content !== "string") {
+        console.error("ai.error", res.status, data);
+        toast.error(data?.error ?? `AI request failed (${res.status})`);
+
+        // rollback last optimistic user bubble
         setSelectedChat((prev) => {
           if (!prev) return prev;
-          return { ...prev, messages: [...prev.messages, assistantMessage] };
+          const msgs = prev.messages;
+          if (msgs.length && msgs[msgs.length - 1].role === "user") {
+            return { ...prev, messages: msgs.slice(0, -1) };
+          }
+          return prev;
         });
 
-        for (let i = 0; i < tokens.length; i++) {
-          setTimeout(() => {
-            assistantMessage.content = tokens.slice(0, i + 1).join(" ");
-            setSelectedChat((prev) => {
-              if (!prev) return prev;
-              const updated = [...prev.messages];
-              updated[updated.length - 1] = assistantMessage;
-              return { ...prev, messages: updated };
-            });
-          }, i * 100);
-        }
+        // put text back in the textarea so they can retry
+        setPrompt(promptCopy);
+        return;
+      }
 
-        setChats((prevChats) =>
-          prevChats.map((chat: Chat) =>
-            chat._id === selectedChat!._id
-              ? {
-                  ...chat,
-                  messages: [
-                    ...chat.messages,
-                    userPrompt,
-                    { ...assistantMessage, content: full },
-                  ],
-                }
-              : chat
-          )
+      // 5) show assistant reply (typing animation optional)
+      const full = data.content as string;
+      const typing = true; // turn off if you want instant display
+
+      if (!typing) {
+        setSelectedChat((prev) =>
+          prev
+            ? {
+                ...prev,
+                messages: [
+                  ...prev.messages,
+                  { role: "assistant", content: full, timestamp: Date.now() },
+                ],
+              }
+            : prev
         );
       } else {
-        toast.error("Failed to get a response");
-        setPrompt(promptCopy);
-        setSelectedChat((prev) => {
-          if (!prev) return prev;
-          return { ...prev, messages: prev.messages.slice(0, -1) };
+        const tokens = full.split(" ");
+        let running = "";
+        // push a placeholder once, then update its content
+        setSelectedChat((prev) =>
+          prev
+            ? {
+                ...prev,
+                messages: [
+                  ...prev.messages,
+                  { role: "assistant", content: "", timestamp: Date.now() },
+                ],
+              }
+            : prev
+        );
+
+        tokens.forEach((t, i) => {
+          setTimeout(() => {
+            running = running ? `${running} ${t}` : t;
+            setSelectedChat((prev) => {
+              if (!prev) return prev;
+              const msgs = [...prev.messages];
+              const last = msgs[msgs.length - 1];
+              if (!last || last.role !== "assistant") return prev;
+              msgs[msgs.length - 1] = { ...last, content: running };
+              return { ...prev, messages: msgs };
+            });
+          }, i * 100);
         });
       }
+
+      // 6) keep the chats list in sync with the final message set
+      setChats((prev: Chat[]) =>
+        prev.map((c) =>
+          c._id === chat._id
+            ? {
+                ...c,
+                messages: [
+                  ...c.messages,
+                  userPrompt,
+                  { role: "assistant", content: full, timestamp: Date.now() },
+                ],
+              }
+            : c
+        )
+      );
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { message?: string } } })?.response?.data
@@ -125,7 +194,7 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
         "Unknown error";
       toast.error(msg);
 
-      setPrompt(promptCopy);
+      // rollback optimistic user bubble
       setSelectedChat((prev) => {
         if (!prev) return prev;
         const msgs = prev.messages;
@@ -134,6 +203,8 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
         }
         return prev;
       });
+
+      setPrompt(prompt);
     } finally {
       setIsLoading(false);
     }
@@ -208,5 +279,3 @@ function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
     </form>
   );
 }
-
-export default PromptBox;

@@ -1,55 +1,85 @@
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import { auth } from "@clerk/nextjs/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 20;
 
-const client = new OpenAI({
-  apiKey: process.env.DEEPSEEK_API_KEY,
-  baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
-});
-
-// Your UI can send either `messages` or a single `prompt`
-type Msg = { role: "system" | "user" | "assistant"; content: string };
+const DEEPSEEK_BASE = "https://api.deepseek.com/v1/chat/completions";
 
 export async function POST(req: Request) {
   try {
-    if (!process.env.DEEPSEEK_API_KEY) {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await req.json().catch(() => null);
+    const rawMessages = Array.isArray(body?.messages) ? body.messages : null;
+    if (!rawMessages) {
       return NextResponse.json(
-        { error: "Missing DEEPSEEK_API_KEY" },
-        { status: 500 }
+        { error: "messages[] (role/content) is required" },
+        { status: 400 }
       );
     }
 
-    const body = (await req.json()) as { messages?: Msg[]; prompt?: string };
-
-    const raw: Msg[] =
-      body?.messages && body.messages.length
-        ? body.messages
-        : [{ role: "user", content: body?.prompt ?? "Say hello" }];
-
-    // ✅ Ensure correct type for the SDK
-    const messages: ChatCompletionMessageParam[] = raw.map((m) => ({
-      role: m.role,
-      content: m.content,
+    const messages = rawMessages.map((m: any) => ({
+      role:
+        m?.role === "assistant" || m?.role === "system" ? m.role : "user",
+      content: String(m?.content ?? ""),
     }));
 
-    const completion = await client.chat.completions.create({
-      model: "deepseek-chat",
-      messages,
-      temperature: 0.7,
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
 
-    const content = completion.choices?.[0]?.message?.content ?? "";
+    const res = await fetch(DEEPSEEK_BASE, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY ?? ""}`,
+      },
+      body: JSON.stringify({
+        model: "deepseek-chat",
+        messages,
+        temperature: 0.7,
+      }),
+      signal: controller.signal,
+    }).catch((e) => {
+      throw new Error(`Network error to DeepSeek: ${e?.message ?? e}`);
+    });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      let errJson: any = null;
+      try {
+        errJson = await res.json();
+      } catch {
+      }
+      const reason =
+        errJson?.error?.message ||
+        errJson?.error ||
+        `${res.status} ${res.statusText}`;
+      return NextResponse.json({ error: reason }, { status: res.status });
+    }
+
+    const json = await res.json();
+    const content =
+      json?.choices?.[0]?.message?.content ??
+      json?.choices?.[0]?.delta?.content ??
+      "";
+
     return NextResponse.json({ content });
-} catch (err: unknown) {
-  const message =
-    err instanceof Error ? err.message :
-    typeof err === "string" ? err :
-    "Unknown error";
-  console.error("chat/ai error:", err);
-  return NextResponse.json({ error: message }, { status: 500 });
-}
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      return NextResponse.json(
+        { error: "Model request timed out (server)" },
+        { status: 504 }
+      );
+    }
+    console.error("/api/chat/ai fetch error:", err);
+    return NextResponse.json(
+      { error: err?.message ?? "Server error" },
+      { status: 500 }
+    );
+  }
 }
