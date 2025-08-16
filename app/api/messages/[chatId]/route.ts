@@ -78,7 +78,9 @@ export async function POST(
     const chat = await Chat.findOneAndUpdate(
       { _id: params.chatId, userId },
       {
-        $push: { messages: { role: "user", content, timestamp: now } },
+        $push: {
+          messages: { role: "user", content, timestamp: now },
+        },
         $set: { updatedAt: new Date(now) },
       },
       { new: true, projection: "_id title messages updatedAt" }
