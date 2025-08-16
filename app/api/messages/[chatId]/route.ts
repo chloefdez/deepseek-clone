@@ -1,10 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectDB from "../../../../config/db";
 import Chat from "../../../../models/Chat";
 
+/**
+ * GET /api/messages/:chatId
+ * Return messages for a single chat.
+ */
 export async function GET(
-  _req: NextRequest,
+  _req: Request,
   { params }: { params: { chatId: string } }
 ) {
   try {
@@ -42,8 +46,12 @@ export async function GET(
   }
 }
 
+/**
+ * POST /api/messages/:chatId
+ * Append a user message to that chat.
+ */
 export async function POST(
-  req: NextRequest,
+  req: Request,
   { params }: { params: { chatId: string } }
 ) {
   try {
