@@ -1,12 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectDB from "../../../../config/db";
 import Chat from "../../../../models/Chat";
 
-type RouteParams = { params: { chatId: string } };
-
 /** GET /api/messages/:chatId — return messages for a chat */
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+export async function GET(
+  _req: Request,
+  context: { params: { chatId: string } }
+) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -18,7 +19,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 
     await connectDB();
 
-    const chat = await Chat.findOne({ _id: params.chatId, userId })
+    const { chatId } = context.params;
+    const chat = await Chat.findOne({ _id: chatId, userId })
       .select("_id messages")
       .lean();
 
@@ -43,7 +45,10 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 }
 
 /** POST /api/messages/:chatId — append a user message */
-export async function POST(req: NextRequest, { params }: RouteParams) {
+export async function POST(
+  req: Request,
+  context: { params: { chatId: string } }
+) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -64,9 +69,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     await connectDB();
 
+    const { chatId } = context.params;
     const now = Date.now();
+
     const chat = await Chat.findOneAndUpdate(
-      { _id: params.chatId, userId },
+      { _id: chatId, userId },
       {
         $push: { messages: { role: "user", content, timestamp: now } },
         $set: { updatedAt: new Date(now) },
