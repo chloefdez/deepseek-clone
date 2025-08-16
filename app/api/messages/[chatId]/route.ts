@@ -4,10 +4,7 @@ import connectDB from "../../../../config/db";
 import Chat from "../../../../models/Chat";
 
 /** GET /api/messages/:chatId — return messages for a chat */
-export async function GET(
-  _req: Request,
-  context: { params: { chatId: string } }
-) {
+export async function GET(_req: Request, ctx: any) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -19,7 +16,14 @@ export async function GET(
 
     await connectDB();
 
-    const { chatId } = context.params;
+    const chatId = String(ctx?.params?.chatId ?? "");
+    if (!chatId) {
+      return NextResponse.json(
+        { success: false, message: "Missing chatId" },
+        { status: 400 }
+      );
+    }
+
     const chat = await Chat.findOne({ _id: chatId, userId })
       .select("_id messages")
       .lean();
@@ -45,10 +49,7 @@ export async function GET(
 }
 
 /** POST /api/messages/:chatId — append a user message */
-export async function POST(
-  req: Request,
-  context: { params: { chatId: string } }
-) {
+export async function POST(req: Request, ctx: any) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -69,9 +70,15 @@ export async function POST(
 
     await connectDB();
 
-    const { chatId } = context.params;
-    const now = Date.now();
+    const chatId = String(ctx?.params?.chatId ?? "");
+    if (!chatId) {
+      return NextResponse.json(
+        { success: false, message: "Missing chatId" },
+        { status: 400 }
+      );
+    }
 
+    const now = Date.now();
     const chat = await Chat.findOneAndUpdate(
       { _id: chatId, userId },
       {
