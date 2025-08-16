@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import connectDB from "../../../../config/db";
-import Chat from "../../../../models/Chat";
+import connectDB from "@/config/db";
+import Chat from "@/models/Chat";
 
 /** GET /api/messages/:chatId — return messages for a chat */
 export async function GET(
