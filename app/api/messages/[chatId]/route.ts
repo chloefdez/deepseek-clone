@@ -1,12 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import connectDB from "@/config/db";
-import Chat from "@/models/Chat";
+import connectDB from "../../../../config/db";
+import Chat from "../../../../models/Chat";
 
-type RouteCtx = { params: { chatId: string } };
+type RouteParams = { params: { chatId: string } };
 
 /** GET /api/messages/:chatId — return messages for a chat */
-export async function GET(_req: Request, { params }: RouteCtx) {
+export async function GET(_req: NextRequest, { params }: RouteParams) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -43,7 +43,7 @@ export async function GET(_req: Request, { params }: RouteCtx) {
 }
 
 /** POST /api/messages/:chatId — append a user message */
-export async function POST(req: Request, { params }: RouteCtx) {
+export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     const { userId } = await auth();
     if (!userId) {
