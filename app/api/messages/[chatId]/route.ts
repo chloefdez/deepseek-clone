@@ -3,13 +3,10 @@ import { auth } from "@clerk/nextjs/server";
 import connectDB from "../../../../config/db";
 import Chat from "../../../../models/Chat";
 
-/**
- * GET /api/messages/:chatId
- * Return messages for a single chat.
- */
+/** GET /api/messages/:chatId — return messages for a chat */
 export async function GET(
   _req: Request,
-  { params }: { params: { chatId: string } }
+  context: { params: { chatId: string } }
 ) {
   try {
     const { userId } = await auth();
@@ -22,7 +19,7 @@ export async function GET(
 
     await connectDB();
 
-    const chat = await Chat.findOne({ _id: params.chatId, userId })
+    const chat = await Chat.findOne({ _id: context.params.chatId, userId })
       .select("_id messages")
       .lean();
 
@@ -40,19 +37,16 @@ export async function GET(
     return NextResponse.json({ success: true, data: messages }, { status: 200 });
   } catch (err: any) {
     return NextResponse.json(
-      { success: false, message: err?.message || "Server error" },
+      { success: false, message: err?.message ?? "Server error" },
       { status: 500 }
     );
   }
 }
 
-/**
- * POST /api/messages/:chatId
- * Append a user message to that chat.
- */
+/** POST /api/messages/:chatId — append a user message */
 export async function POST(
   req: Request,
-  { params }: { params: { chatId: string } }
+  context: { params: { chatId: string } }
 ) {
   try {
     const { userId } = await auth();
@@ -76,14 +70,12 @@ export async function POST(
 
     const now = Date.now();
     const chat = await Chat.findOneAndUpdate(
-      { _id: params.chatId, userId },
+      { _id: context.params.chatId, userId },
       {
-        $push: {
-          messages: { role: "user", content, timestamp: now },
-        },
+        $push: { messages: { role: "user", content, timestamp: now } },
         $set: { updatedAt: new Date(now) },
       },
-      { new: true, projection: "_id title messages updatedAt" }
+      { new: true, projection: "_id messages updatedAt" }
     ).lean();
 
     if (!chat) {
@@ -100,7 +92,7 @@ export async function POST(
     return NextResponse.json({ success: true, data: messages }, { status: 200 });
   } catch (err: any) {
     return NextResponse.json(
-      { success: false, message: err?.message || "Server error" },
+      { success: false, message: err?.message ?? "Server error" },
       { status: 500 }
     );
   }
