@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 import { Toaster } from "react-hot-toast";
+import { AppContextProvider } from "@/context/AppContext";
 
 export const metadata: Metadata = {
   title: "Deepseek Clone",
@@ -14,11 +15,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+    >
       <html lang="en">
         <body className="bg-[#0f1115] text-white antialiased">
-          {children}
-          <Toaster position="top-right" />
+          <AppContextProvider>
+            {children}
+            <Toaster position="top-right" />
+          </AppContextProvider>
         </body>
       </html>
     </ClerkProvider>

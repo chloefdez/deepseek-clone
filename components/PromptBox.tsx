@@ -4,7 +4,7 @@ import { assets } from "@/assets/assets";
 import { useAppContext } from "@/context/AppContext";
 import axios from "axios";
 import Image from "next/image";
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import toast from "react-hot-toast";
 import type { Chat, Message } from "@/context/types";
 import { useAuth, useUser } from "@clerk/nextjs";
@@ -14,13 +14,54 @@ type PromptBoxProps = {
   setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
+/* ──────────────────────────────────────────────
+   Title helpers
+   ────────────────────────────────────────────── */
+function cleanForTitle(s: string) {
+  return s
+    .replace(/[*_#`>~\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+function suggestTitle(text: string) {
+  const cleaned = cleanForTitle(text);
+  if (!cleaned) return "New chat";
+  const first = cleaned.split(" ").slice(0, 8).join(" ");
+  const capped = first.charAt(0).toUpperCase() + first.slice(1);
+  return capped.length > 48 ? capped.slice(0, 48).trimEnd() + "…" : capped;
+}
+async function saveTitle(
+  chatId: string,
+  title: string,
+  getToken: () => Promise<string | null>
+) {
+  try {
+    const token = await getToken();
+    await axios.post(
+      "/api/chat/rename",
+      { chatId, name: title },
+      token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+    );
+  } catch {
+    /* no-op; UI already updated optimistically */
+  }
+}
+
 export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
   const [prompt, setPrompt] = useState("");
   const { setChats, selectedChat, setSelectedChat } = useAppContext();
   const { getToken } = useAuth();
   const { isSignedIn } = useUser();
 
-  // create a chat if one isn't open
+  const mirrorMessages = (chatId: string, messages: Message[]) => {
+    setChats((prev: Chat[]) =>
+      prev.map((c) => (c._id === chatId ? { ...c, messages } : c))
+    );
+  };
+
+  const sendingRef = useRef(false);
+  const formRef = useRef<HTMLFormElement>(null);
+
   const ensureChat = async () => {
     if (selectedChat?._id) return selectedChat;
 
@@ -31,59 +72,122 @@ export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
       token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
     );
 
-    const created: Chat = res.data?.data ?? res.data?.chat ?? res.data;
-    if (!created?._id) throw new Error("Failed to create chat");
+    const raw = res.data?.data ?? res.data?.chat ?? res.data;
+    const normId = (raw as any)?._id ?? (raw as any)?.id ?? null;
 
-    setChats((prev: Chat[]) => [created, ...prev]);
-    setSelectedChat(created);
-    return created;
+    const withMsgs: Chat = {
+      ...(raw || {}),
+      _id: normId,
+      messages: Array.isArray(raw?.messages) ? raw.messages : [],
+    };
+    if (!withMsgs._id) throw new Error("Failed to create chat (missing id)");
+
+    setChats((prev: Chat[]) => [
+      withMsgs,
+      ...(Array.isArray(prev) ? prev : []),
+    ]);
+    setSelectedChat(withMsgs);
+    return withMsgs;
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      sendPrompt(e);
+      formRef.current?.requestSubmit();
     }
   };
 
-  const sendPrompt = async (
-    e: React.FormEvent | React.KeyboardEvent<HTMLTextAreaElement>
-  ) => {
+  const sendPrompt = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+
     const promptCopy = prompt;
 
     try {
-      if (!isSignedIn) return toast.error("Login to send message");
-      if (isLoading) return toast.error("Wait for the previous response");
+      if (!isSignedIn) {
+        toast.error("Login to send message");
+        return;
+      }
+      if (isLoading) return;
       if (!prompt.trim()) return;
 
       setIsLoading(true);
       setPrompt("");
 
-      // 1) make sure we have a chat
+      // 1) ensure chat exists
       const chat = await ensureChat();
 
-      // 2) optimistic user bubble in the open chat
+      // 1.5) auto-name if needed
+      const needsTitle =
+        !chat?.title ||
+        chat.title === "New chat" ||
+        /^Chat\s/i.test(chat.title);
+      if (needsTitle && promptCopy.trim()) {
+        const newTitle = suggestTitle(promptCopy);
+        setSelectedChat((prev) =>
+          prev && prev._id === chat._id
+            ? ({ ...prev, title: newTitle, name: newTitle } as Chat)
+            : prev
+        );
+        setChats((prev: Chat[]) =>
+          prev.map((c) =>
+            c._id === chat._id
+              ? ({ ...c, title: newTitle, name: newTitle } as Chat)
+              : c
+          )
+        );
+        saveTitle(chat._id as string, newTitle, getToken);
+      }
+
+      // 2) persist to /api/messages/:chatId
+      await axios.post(`/api/messages/${chat._id}`, { content: promptCopy });
+
+      // 3) optimistic user bubble
       const userPrompt: Message = {
         role: "user",
         content: promptCopy,
         timestamp: Date.now(),
       };
-      setSelectedChat((prev) =>
-        prev ? { ...prev, messages: [...prev.messages, userPrompt] } : prev
-      );
+      setSelectedChat((prev) => {
+        const base = prev && prev._id === chat._id ? prev : chat;
+        const existing = Array.isArray(base?.messages) ? base.messages : [];
+        const next = { ...(base as Chat), messages: [...existing, userPrompt] };
+        mirrorMessages(chat._id as string, next.messages);
+        return next;
+      });
 
-      // 3) prepare API messages (history + new user message)
+      // assistant placeholder (same as your original)
+      const assistantPlaceholder: Message = {
+        role: "assistant",
+        content: "",
+        timestamp: Date.now(),
+      };
+      setSelectedChat((prev) => {
+        if (!prev) return prev;
+        const msgs = [...prev.messages];
+        if (
+          msgs.length &&
+          msgs[msgs.length - 1].role === "assistant" &&
+          !msgs[msgs.length - 1].content
+        ) {
+          msgs.pop();
+        }
+        const next = {
+          ...(prev as Chat),
+          messages: [...msgs, assistantPlaceholder],
+        };
+        mirrorMessages(prev._id as string, next.messages);
+        return next;
+      });
+
+      // 4) call AI backend (unchanged)
       const history =
         chat?.messages?.map((m) => ({ role: m.role, content: m.content })) ??
         [];
       const apiMessages = [...history, { role: "user", content: promptCopy }];
 
-      // 4) call /api/chat/ai (with a generous timeout)
       const token = await getToken();
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 60_000);
-
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
@@ -92,11 +196,8 @@ export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
       const res = await fetch("/api/chat/ai", {
         method: "POST",
         headers,
-        body: JSON.stringify({ messages: apiMessages }),
-        signal: controller.signal,
+        body: JSON.stringify({ messages: apiMessages, chatId: chat._id }),
       });
-
-      clearTimeout(timeout);
 
       let data: any = null;
       try {
@@ -105,113 +206,63 @@ export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
         data = null;
       }
 
-      if (!res.ok || typeof data?.content !== "string") {
-        console.error("ai.error", res.status, data);
+      if (!res.ok) {
         toast.error(data?.error ?? `AI request failed (${res.status})`);
-
-        // rollback last optimistic user bubble
-        setSelectedChat((prev) => {
-          if (!prev) return prev;
-          const msgs = prev.messages;
-          if (msgs.length && msgs[msgs.length - 1].role === "user") {
-            return { ...prev, messages: msgs.slice(0, -1) };
-          }
-          return prev;
-        });
-
-        // put text back in the textarea so they can retry
-        setPrompt(promptCopy);
         return;
       }
 
-      // 5) show assistant reply (typing animation optional)
-      const full = data.content as string;
-      const typing = true; // turn off if you want instant display
+      const full = typeof data?.content === "string" ? data.content : "";
+      if (!full.trim()) return;
 
-      if (!typing) {
-        setSelectedChat((prev) =>
-          prev
-            ? {
-                ...prev,
-                messages: [
-                  ...prev.messages,
-                  { role: "assistant", content: full, timestamp: Date.now() },
-                ],
-              }
-            : prev
-        );
-      } else {
-        const tokens = full.split(" ");
-        let running = "";
-        // push a placeholder once, then update its content
-        setSelectedChat((prev) =>
-          prev
-            ? {
-                ...prev,
-                messages: [
-                  ...prev.messages,
-                  { role: "assistant", content: "", timestamp: Date.now() },
-                ],
-              }
-            : prev
-        );
+      // stream into assistant bubble (unchanged)
+      const words = full.split(" ");
+      let running = "";
+      const pushChunk = (i: number) => {
+        if (i >= words.length) return;
+        running = running ? `${running} ${words[i]}` : words[i];
 
-        tokens.forEach((t, i) => {
-          setTimeout(() => {
-            running = running ? `${running} ${t}` : t;
-            setSelectedChat((prev) => {
-              if (!prev) return prev;
-              const msgs = [...prev.messages];
-              const last = msgs[msgs.length - 1];
-              if (!last || last.role !== "assistant") return prev;
-              msgs[msgs.length - 1] = { ...last, content: running };
-              return { ...prev, messages: msgs };
+        setSelectedChat((prev) => {
+          if (!prev) return prev;
+          const msgs = [...prev.messages];
+          let found = false;
+          for (let j = msgs.length - 1; j >= 0; j--) {
+            if (msgs[j].role === "assistant") {
+              msgs[j] = { ...msgs[j], content: running };
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            msgs.push({
+              role: "assistant",
+              content: running,
+              timestamp: Date.now(),
             });
-          }, i * 100);
+          }
+          const next = { ...(prev as Chat), messages: msgs };
+          mirrorMessages(prev._id as string, next.messages);
+          return next;
         });
-      }
 
-      // 6) keep the chats list in sync with the final message set
-      setChats((prev: Chat[]) =>
-        prev.map((c) =>
-          c._id === chat._id
-            ? {
-                ...c,
-                messages: [
-                  ...c.messages,
-                  userPrompt,
-                  { role: "assistant", content: full, timestamp: Date.now() },
-                ],
-              }
-            : c
-        )
-      );
+        setTimeout(() => requestAnimationFrame(() => pushChunk(i + 1)), 30);
+      };
+      requestAnimationFrame(() => pushChunk(0));
     } catch (err: unknown) {
       const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data
-          ?.message ||
-        (err as Error).message ||
+        (err as any)?.response?.data?.message ||
+        (err as Error)?.message ||
         "Unknown error";
       toast.error(msg);
-
-      // rollback optimistic user bubble
-      setSelectedChat((prev) => {
-        if (!prev) return prev;
-        const msgs = prev.messages;
-        if (msgs.length && msgs[msgs.length - 1].role === "user") {
-          return { ...prev, messages: msgs.slice(0, -1) };
-        }
-        return prev;
-      });
-
-      setPrompt(prompt);
+      setPrompt(promptCopy); // restore input
     } finally {
       setIsLoading(false);
+      sendingRef.current = false;
     }
   };
 
   return (
     <form
+      ref={formRef}
       onSubmit={sendPrompt}
       className={`w-full ${
         false ? "max-w-3xl" : "max-w-2xl"
@@ -231,7 +282,7 @@ export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
         <div className="flex items-center gap-2">
           <p className="flex items-center gap-2 text-xs border border-gray-300/40 px-2 py-1 rounded-full cursor-pointer hover:bg-gray-500/20 transition">
             <Image
-              className="h-5"
+              className="h-5 w-auto"
               src={assets.deepthink_icon}
               alt=""
               width={20}
@@ -241,7 +292,7 @@ export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
           </p>
           <p className="flex items-center gap-2 text-xs border border-gray-300/40 px-2 py-1 rounded-full cursor-pointer hover:bg-gray-500/20 transition">
             <Image
-              className="h-5"
+              className="h-5 w-auto"
               src={assets.search_icon}
               alt=""
               width={20}
@@ -253,7 +304,7 @@ export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
 
         <div className="flex items-center gap-2">
           <Image
-            className="w-4 cursor-pointer"
+            className="w-4 h-4 cursor-pointer"
             src={assets.pin_icon}
             alt=""
             width={16}
@@ -261,13 +312,13 @@ export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
           />
           <button
             type="submit"
-            disabled={!prompt.trim() || isLoading}
+            disabled={!prompt.trim() || isLoading || sendingRef.current}
             className={`${
               prompt ? "bg-primary" : "bg-[#71717a]"
             } rounded-full p-2 cursor-pointer disabled:opacity-60`}
           >
             <Image
-              className="w-3.5 aspect-square"
+              className="w-3.5 h-3.5"
               src={prompt ? assets.arrow_icon : assets.arrow_icon_dull}
               alt=""
               width={14}

@@ -8,9 +8,12 @@ export type Message = {
 
 export type Chat = {
   _id: string;
-  name: string;
+  userId?: string;
+  title?: string;
+  name?: string;
   messages: Message[];
-  updatedAt: string;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
 };
 
 export type AppContextType = {
@@ -23,4 +26,5 @@ export type AppContextType = {
   setSelectedChat: React.Dispatch<React.SetStateAction<Chat | null>>;
   fetchUsersChats: () => Promise<void>;
   createNewChat: () => Promise<void>;
+  selectChatById: (id: string) => void;
 };
