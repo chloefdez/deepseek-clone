@@ -3,11 +3,10 @@ import { auth } from "@clerk/nextjs/server";
 import connectDB from "@/config/db";
 import Chat from "@/models/Chat";
 
+type RouteCtx = { params: { chatId: string } };
+
 /** GET /api/messages/:chatId — return messages for a chat */
-export async function GET(
-  _req: Request,
-  context: { params: { chatId: string } }
-) {
+export async function GET(_req: Request, { params }: RouteCtx) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -19,7 +18,7 @@ export async function GET(
 
     await connectDB();
 
-    const chat = await Chat.findOne({ _id: context.params.chatId, userId })
+    const chat = await Chat.findOne({ _id: params.chatId, userId })
       .select("_id messages")
       .lean();
 
@@ -44,10 +43,7 @@ export async function GET(
 }
 
 /** POST /api/messages/:chatId — append a user message */
-export async function POST(
-  req: Request,
-  context: { params: { chatId: string } }
-) {
+export async function POST(req: Request, { params }: RouteCtx) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -70,7 +66,7 @@ export async function POST(
 
     const now = Date.now();
     const chat = await Chat.findOneAndUpdate(
-      { _id: context.params.chatId, userId },
+      { _id: params.chatId, userId },
       {
         $push: { messages: { role: "user", content, timestamp: now } },
         $set: { updatedAt: new Date(now) },
