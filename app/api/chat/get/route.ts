@@ -18,7 +18,6 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
-    // === A) Single chat (with messages) ===
     if (id) {
       const doc = await Chat.findOne({ _id: id, userId })
         .select("_id title name messages updatedAt")
@@ -51,7 +50,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, data }, { status: 200 });
     }
 
-    // === B) List of chats (minimal + normalized) ===
     const docs = await Chat.find({ userId })
       .sort({ updatedAt: -1 })
       .select("_id title name messages updatedAt")

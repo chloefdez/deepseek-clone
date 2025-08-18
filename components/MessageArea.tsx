@@ -32,27 +32,22 @@ function TypingDots() {
 export default function MessageArea() {
   const { selectedChat, setSelectedChat, setChats } = useAppContext();
 
-  // ——————————————————————————————————————
-  // Fetch fresh messages whenever chat changes
-  // ——————————————————————————————————————
+  // 1) Fetch fresh messages whenever chat changes
   useEffect(() => {
     const id = selectedChat?._id;
     if (!id) return;
 
     let cancelled = false;
-
     (async () => {
       try {
         const { data } = await axios.get(`/api/messages/${id}`);
         const msgs: Message[] = Array.isArray(data?.data) ? data.data : [];
-
         if (cancelled) return;
 
         // update selectedChat
         setSelectedChat((prev) =>
           prev && prev._id === id ? ({ ...prev, messages: msgs } as Chat) : prev
         );
-
         // mirror into chats[]
         setChats((prev) =>
           Array.isArray(prev)
@@ -62,7 +57,7 @@ export default function MessageArea() {
             : prev
         );
       } catch {
-        // ignore — keep whatever is already in memory
+        // ignore network hiccups; keep current UI
       }
     })();
 
@@ -71,10 +66,48 @@ export default function MessageArea() {
     };
   }, [selectedChat?._id, setSelectedChat, setChats]);
 
-  const raw = selectedChat?.messages ?? [];
+  // 2) Base messages array (unconditional)
+  const raw = Array.isArray(selectedChat?.messages)
+    ? (selectedChat!.messages as Message[])
+    : ([] as Message[]);
 
-  // Friendly empty state
-  if (raw.length === 0) {
+  // 3) Compact trailing empty assistant placeholders (unconditional)
+  const messages = useMemo(() => {
+    const out = [...raw];
+    // keep at most one empty assistant bubble at the end
+    let sawEmpty = false;
+    for (let i = out.length - 1; i >= 0; i--) {
+      const m = out[i];
+      if (m.role === "assistant" && !m.content) {
+        if (sawEmpty) out.splice(i, 1);
+        else sawEmpty = true;
+      }
+    }
+    return out;
+  }, [raw]);
+
+  // 4) Stable keys for rendering + scroll to bottom on change (unconditional)
+  const keyed = useMemo(
+    () =>
+      messages.map((m, i) => {
+        const key =
+          (m as any).id ??
+          (m as any)._id ??
+          `${m.timestamp ?? "t"}:${m.role}:${i}`;
+        return { key, ...m };
+      }),
+    [messages]
+  );
+
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [keyed.length]);
+
+  const hasMessages = keyed.length > 0;
+
+  // 5) Render
+  if (!hasMessages) {
     return (
       <div className="mx-auto w-full max-w-3xl px-4 py-4 min-h-[calc(100dvh-160px)] flex items-center justify-center text-white/40">
         No messages yet — say hi!
@@ -82,50 +115,12 @@ export default function MessageArea() {
     );
   }
 
-  // compact the last empty assistant bubble (typing dots handling)
-  const messages = useMemo(() => {
-    if (raw.length < 2) return raw;
-    const out = [...raw];
-    let foundEmpty = false;
-    for (let i = out.length - 1; i >= 0; i--) {
-      const m = out[i];
-      if (m.role === "assistant" && !m.content) {
-        if (!foundEmpty) {
-          foundEmpty = true;
-        } else {
-          out.splice(i, 1);
-        }
-      }
-    }
-    return out;
-  }, [raw]);
-
-  const bottomRef = useRef<HTMLDivElement | null>(null);
-
-  // Stable keys for animation
-  const keyed = useMemo(
-    () =>
-      messages.map((m, i) => {
-        const stableId =
-          (m as any).id ??
-          (m as any)._id ??
-          `${m.timestamp ?? "t"}:${m.role}:${i}`;
-        return { key: stableId, ...m };
-      }),
-    [messages]
-  );
-
-  // Auto-scroll
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [keyed.length]);
-
   const last = keyed[keyed.length - 1];
-  const hasEmptyAssistantTail = last?.role === "assistant" && !last?.content;
+  const tailIsEmptyAssistant = last?.role === "assistant" && !last?.content;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-4 min-h-[calc(100dvh-160px)] flex flex-col justify-end">
-      <div className="space-y-3">
+      <div className="space-y-3" aria-live="polite" aria-atomic={false}>
         {keyed.map((m) => {
           const isUser = m.role === "user";
           const isEmptyAssistant = m.role === "assistant" && !m.content;
@@ -151,6 +146,7 @@ export default function MessageArea() {
             </div>
           );
         })}
+        {tailIsEmptyAssistant && <div />}
         <div ref={bottomRef} />
       </div>
 

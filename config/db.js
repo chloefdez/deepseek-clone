@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { env } from "@/env"; 
 
 let cached = global.mongoose || { conn: null, promise: null };
 
@@ -6,23 +7,20 @@ export default async function connectDB() {
   if (cached.conn) return cached.conn;
 
   if (!cached.promise) {
-    console.log("🔌 Connecting to:", process.env.MONGODB_URI);
+
     cached.promise = mongoose
-      .connect(process.env.MONGODB_URI, {
-        dbName: "deepseek",
-      })
-      .then((mongoose) => {
+      .connect(env.MONGODB_URI, { dbName: "deepseek" })
+      .then((conn) => {
         console.log("✅ MongoDB connected");
-        return mongoose;
+        return conn;
+      })
+      .catch((err) => {
+        console.error("❌ Error connecting to MongoDB:", err);
+        throw err;
       });
   }
 
-  try {
-    cached.conn = await cached.promise;
-  } catch (error) {
-    console.log("❌ Error connecting to MongoDB:", error);
-  }
-
+  cached.conn = await cached.promise;
   global.mongoose = cached;
   return cached.conn;
 }

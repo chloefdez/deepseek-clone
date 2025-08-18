@@ -5,33 +5,45 @@ import Sidebar from "@/components/Sidebar";
 import PromptBox from "@/components/PromptBox";
 import MessageArea from "@/components/MessageArea";
 import { assets } from "@/assets/assets";
-import { useState, useEffect } from "react";
-import { useAppContext } from "@/context/AppContext"; 
+import { useEffect, useRef, useState } from "react";
+import { useAppContext } from "@/context/AppContext";
 
 export default function ClientShell() {
   const [expand, setExpand] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const { selectedChat } = useAppContext(); 
-  const hasMessages =
-    !!selectedChat &&
-    Array.isArray(selectedChat.messages) &&
-    selectedChat.messages.length > 0;
 
+  // Home mode starts true on hard refresh so you get the welcome screen.
+  const [homeMode, setHomeMode] = useState(true);
+  const didInit = useRef(false);
+
+  const { selectedChat, setSelectedChat } = useAppContext();
+
+  // On first mount, clear any preselected chat so the welcome shows.
   useEffect(() => {
-    const DEBUG = false; // set to true if you ever want logs back in dev
-    if (DEBUG && process.env.NODE_ENV === "development") {
-      console.log("[ClientShell] selectedChat changed", {
-        id: selectedChat?._id,
-        messagesLen: selectedChat?.messages?.length ?? 0,
-      });
-    }
-  }, [selectedChat]);
+    if (didInit.current) return;
+    didInit.current = true;
+    setSelectedChat(undefined as any);
+  }, [setSelectedChat]);
+
+  // Listen for “enter/exit home” events fired by Sidebar / PromptBox.
+  useEffect(() => {
+    const exit = () => setHomeMode(false);
+    const enter = () => setHomeMode(true);
+    window.addEventListener("exit-home", exit);
+    window.addEventListener("enter-home", enter);
+    return () => {
+      window.removeEventListener("exit-home", exit);
+      window.removeEventListener("enter-home", enter);
+    };
+  }, []);
+
+  // IMPORTANT: don't depend on messages here — if a chat is selected, show the chat UI.
+  const showHome = homeMode || !selectedChat?._id;
 
   return (
     <div className="flex h-dvh bg-[#292a2d] text-white">
       <Sidebar expand={expand} setExpand={setExpand} />
 
-      {/* Right pane as a 2-row grid: [content (1fr), footer (auto)] */}
       <main className="relative grid h-dvh flex-1 grid-rows-[1fr_auto]">
         {/* Mobile header */}
         <div className="md:hidden absolute top-6 left-0 right-0 px-4 flex items-center justify-between">
@@ -44,13 +56,9 @@ export default function ClientShell() {
           <Image className="opacity-70" src={assets.chat_icon} alt="chat" />
         </div>
 
-        {/* Row 1: scrollable content area */}
+        {/* Content */}
         <section className="min-h-0 overflow-y-auto">
-          {hasMessages ? (
-            // Normal chat view
-            <MessageArea />
-          ) : (
-            // Empty state: center greeting + prompt
+          {showHome ? (
             <div className="min-h-[calc(100dvh-120px)] flex flex-col items-center justify-center px-4">
               <div className="text-center mb-6">
                 <Image
@@ -59,7 +67,6 @@ export default function ClientShell() {
                   width={40}
                   height={40}
                   className="mx-auto mb-4 opacity-80"
-                  priority
                 />
                 <h1 className="text-2xl font-semibold mb-2">
                   Hi, I&apos;m Deepseek.
@@ -70,11 +77,13 @@ export default function ClientShell() {
                 <PromptBox isLoading={isLoading} setIsLoading={setIsLoading} />
               </div>
             </div>
+          ) : (
+            <MessageArea />
           )}
         </section>
 
-        {/* Row 2: footer (only when there are messages) */}
-        {hasMessages && (
+        {/* Footer only in chat view */}
+        {!showHome && (
           <footer className="bg-[#292a2d]">
             <div className="max-w-3xl mx-auto px-4 pt-2 pb-4">
               <PromptBox isLoading={isLoading} setIsLoading={setIsLoading} />

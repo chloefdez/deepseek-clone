@@ -2,30 +2,45 @@
 
 import React, { useState } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { assets } from "@/assets/assets";
 import { useClerk, useUser, UserButton, useAuth } from "@clerk/nextjs";
 import ChatLabel from "./ChatLabel";
 import { useAppContext } from "@/context/AppContext";
 import axios from "axios";
 import toast from "react-hot-toast";
-import type { Chat } from "@/context/types";
+import type { Chat, Message } from "@/context/types";
 
 type SidebarProps = {
   expand: boolean;
   setExpand: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
+function recencyTs(c: any): number {
+  const ua = c?.updatedAt
+    ? +new Date(typeof c.updatedAt === "string" ? c.updatedAt : c.updatedAt)
+    : 0;
+  if (ua) return ua;
+  const msgs: Message[] = Array.isArray(c?.messages) ? c.messages : [];
+  const last = msgs.length ? msgs[msgs.length - 1] : null;
+  return typeof last?.timestamp === "number" ? last.timestamp : 0;
+}
+
 export default function Sidebar({ expand, setExpand }: SidebarProps) {
   const { openSignIn } = useClerk();
-  const { user } = useUser();
+  const { user, isSignedIn } = useUser();
   const { getToken } = useAuth();
+  const router = useRouter();
 
-  const { chats, setChats, selectChatById } = useAppContext();
+  const { chats, setChats, selectChatById, setSelectedChat } = useAppContext();
 
   const [openMenu, setOpenMenu] = useState<{
     id: string | null;
     open: boolean;
-  }>({ id: null, open: false });
+  }>({
+    id: null,
+    open: false,
+  });
 
   const handleToggleMenu = (
     e: React.MouseEvent<HTMLDivElement | HTMLButtonElement>,
@@ -36,11 +51,90 @@ export default function Sidebar({ expand, setExpand }: SidebarProps) {
       prev.id === id ? { id, open: !prev.open } : { id, open: true }
     );
   };
-
   const handleCloseMenu = () => setOpenMenu({ id: null, open: false });
 
-  // New Chat handler
+  /** Small helper toast */
+  function showLoginToast() {
+    toast.custom((t) => (
+      <div className="bg-[#1f1f22] text-white/90 border border-white/10 rounded-xl px-4 py-3 shadow-lg flex items-center gap-3">
+        <span>Please login to begin a new chat</span>
+        <button
+          onClick={() => {
+            toast.dismiss(t.id);
+            openSignIn?.();
+          }}
+          className="ml-2 rounded-md bg-primary px-3 py-1 text-sm font-medium hover:opacity-90"
+        >
+          Sign in
+        </button>
+        <button
+          onClick={() => toast.dismiss(t.id)}
+          className="ml-1 rounded-md px-2 py-1 text-sm text-white/70 hover:bg-white/10"
+        >
+          Later
+        </button>
+      </div>
+    ));
+  }
+
+  /** Logo → go home (clear selection + route to "/") */
+  const goHome = () => {
+    setSelectedChat(undefined as any);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("enter-home"));
+    }
+    router.push("/");
+  };
+
+  /** Load a chat’s messages on demand, then select it */
+  const openChat = async (id: string) => {
+    if (typeof window !== "undefined")
+      window.dispatchEvent(new Event("exit-home"));
+    try {
+      // optimistic select
+      selectChatById(id);
+
+      // if we already have messages, skip fetch
+      const existing = (Array.isArray(chats) ? (chats as Chat[]) : []).find(
+        (c) => String((c as any)?._id) === id
+      );
+      if (existing?.messages?.length) return;
+
+      const token = await getToken();
+      const res = await axios.get(
+        `/api/messages/${id}`,
+        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+      );
+
+      const msgs =
+        res.data?.data ??
+        res.data?.messages ??
+        (Array.isArray(res.data) ? res.data : []) ??
+        [];
+
+      setChats((prev: Chat[]) =>
+        (Array.isArray(prev) ? prev : []).map((c: any) =>
+          String(c?._id) === id
+            ? { ...c, messages: msgs, updatedAt: new Date() }
+            : c
+        )
+      );
+    } catch (err: any) {
+      toast.error(
+        err?.response?.data?.message ||
+          err?.message ||
+          "Failed to load messages"
+      );
+    }
+  };
+
+  /** Create a new chat on server, put it on top, select it */
   const handleNewChat = async () => {
+    if (!isSignedIn) {
+      showLoginToast();
+      return;
+    }
+
     try {
       const token = await getToken();
       const res = await axios.post(
@@ -48,22 +142,24 @@ export default function Sidebar({ expand, setExpand }: SidebarProps) {
         { title: "New chat" },
         token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
       );
+
       const raw = res.data?.data ?? res.data?.chat ?? res.data;
       const normId = raw?._id ?? raw?.id ?? null;
-
       const newChat: Chat = {
         ...(raw || {}),
         _id: normId,
         messages: Array.isArray(raw?.messages) ? raw.messages : [],
         title: raw?.title ?? "New chat",
-      };
+        name: raw?.name ?? raw?.title ?? "New chat",
+        updatedAt: new Date(),
+      } as any;
+
       if (!newChat._id) throw new Error("Failed to create chat (missing id)");
 
       setChats((prev: Chat[]) => [
         newChat,
         ...(Array.isArray(prev) ? prev : []),
       ]);
-      // (Optional) immediately select the freshly created chat:
       selectChatById(String(newChat._id));
     } catch (err: any) {
       toast.error(
@@ -73,6 +169,10 @@ export default function Sidebar({ expand, setExpand }: SidebarProps) {
       );
     }
   };
+
+  const sorted = Array.isArray(chats)
+    ? [...(chats as Chat[])].sort((a, b) => recencyTs(b) - recencyTs(a))
+    : [];
 
   return (
     <div
@@ -90,14 +190,23 @@ export default function Sidebar({ expand, setExpand }: SidebarProps) {
                 : "flex-col items-center gap-8"
             }`}
           >
-            <Image
-              className={expand ? "w-36 h-auto" : "w-10 h-auto"}
-              src={expand ? assets.logo_text : assets.logo_icon}
-              alt="Deepseek"
-              width={expand ? 144 : 40}
-              height={expand ? 36 : 40}
-              priority
-            />
+            {/* Logo → Home */}
+            <button
+              type="button"
+              onClick={goHome}
+              aria-label="Go to Deepseek Home"
+              className="focus:outline-none"
+              title="Deepseek Home"
+            >
+              <Image
+                className={expand ? "w-36 h-auto" : "w-10 h-auto"}
+                src={expand ? assets.logo_text : assets.logo_icon}
+                alt="Deepseek"
+                width={expand ? 144 : 40}
+                height={expand ? 36 : 40}
+                loading="lazy"
+              />
+            </button>
 
             <div
               onClick={() => setExpand(!expand)}
@@ -167,14 +276,14 @@ export default function Sidebar({ expand, setExpand }: SidebarProps) {
             <p className="my-1 text-sm text-white/25">Recents</p>
             <div className="h-full overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10 hover:scrollbar-thumb-white/20 scrollbar-track-transparent">
               <div className="space-y-1">
-                {Array.isArray(chats) && chats.length > 0 ? (
-                  (chats as Array<{ _id: string }>).map((c) => {
+                {sorted.length > 0 ? (
+                  sorted.map((c: any) => {
                     const id =
                       typeof c._id === "string" ? c._id : String(c._id);
                     return (
                       <div
                         key={id}
-                        onClick={() => selectChatById(id)}
+                        onClick={() => openChat(id)}
                         className="cursor-pointer"
                       >
                         <ChatLabel
@@ -182,6 +291,7 @@ export default function Sidebar({ expand, setExpand }: SidebarProps) {
                           isOpen={openMenu.open && openMenu.id === id}
                           toggleMenu={(e) => handleToggleMenu(e, id)}
                           closeMenu={handleCloseMenu}
+                          onSelect={() => openChat(id)}
                         />
                       </div>
                     );
@@ -235,7 +345,13 @@ export default function Sidebar({ expand, setExpand }: SidebarProps) {
             {expand && (
               <>
                 <span>Get App</span>
-                <Image alt="" src={assets.new_icon} width={18} height={18} />
+                <Image
+                  className="w-4 h-4"
+                  alt=""
+                  src={assets.new_icon}
+                  width={18}
+                  height={18}
+                />
               </>
             )}
           </div>

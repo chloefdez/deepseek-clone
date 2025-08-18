@@ -9,11 +9,6 @@ import toast from "react-hot-toast";
 import type { Chat, Message } from "@/context/types";
 import { useAuth, useUser } from "@clerk/nextjs";
 
-type PromptBoxProps = {
-  isLoading: boolean;
-  setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
-};
-
 /* ──────────────────────────────────────────────
    Title helpers
    ────────────────────────────────────────────── */
@@ -42,20 +37,31 @@ async function saveTitle(
       { chatId, name: title },
       token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
     );
-  } catch {
-    /* no-op; UI already updated optimistically */
-  }
+  } catch {}
 }
 
-export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
+export default function PromptBox({
+  isLoading,
+  setIsLoading,
+}: {
+  isLoading: boolean;
+  setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
+}) {
   const [prompt, setPrompt] = useState("");
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
   const { setChats, selectedChat, setSelectedChat } = useAppContext();
   const { getToken } = useAuth();
   const { isSignedIn } = useUser();
 
+  // abort controller for overlapping sends
+  const ctlRef = useRef<AbortController | null>(null);
+
   const mirrorMessages = (chatId: string, messages: Message[]) => {
+    const now = new Date();
     setChats((prev: Chat[]) =>
-      prev.map((c) => (c._id === chatId ? { ...c, messages } : c))
+      prev.map((c: any) =>
+        c._id === chatId ? { ...c, messages, updatedAt: now } : c
+      )
     );
   };
 
@@ -97,6 +103,23 @@ export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
     }
   };
 
+  const removeAssistantPlaceholder = () => {
+    setSelectedChat((prev) => {
+      if (!prev) return prev;
+      const msgs = [...prev.messages];
+      if (
+        msgs.length &&
+        msgs[msgs.length - 1].role === "assistant" &&
+        !msgs[msgs.length - 1].content
+      ) {
+        msgs.pop();
+      }
+      const next = { ...(prev as Chat), messages: msgs };
+      mirrorMessages(prev._id as string, msgs);
+      return next;
+    });
+  };
+
   const sendPrompt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (sendingRef.current) return;
@@ -114,9 +137,20 @@ export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
 
       setIsLoading(true);
       setPrompt("");
+      taRef.current?.focus();
 
       // 1) ensure chat exists
       const chat = await ensureChat();
+
+      // 1.2) persist this user message
+      try {
+        const token = await getToken();
+        await axios.post(
+          `/api/messages/${chat._id}`,
+          { content: promptCopy },
+          token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+        );
+      } catch {}
 
       // 1.5) auto-name if needed
       const needsTitle =
@@ -140,10 +174,7 @@ export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
         saveTitle(chat._id as string, newTitle, getToken);
       }
 
-      // 2) persist to /api/messages/:chatId
-      await axios.post(`/api/messages/${chat._id}`, { content: promptCopy });
-
-      // 3) optimistic user bubble
+      // 2) optimistic user bubble
       const userPrompt: Message = {
         role: "user",
         content: promptCopy,
@@ -157,35 +188,33 @@ export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
         return next;
       });
 
-      // assistant placeholder (same as your original)
-      const assistantPlaceholder: Message = {
-        role: "assistant",
-        content: "",
-        timestamp: Date.now(),
-      };
+      // 2.5) assistant placeholder
       setSelectedChat((prev) => {
         if (!prev) return prev;
         const msgs = [...prev.messages];
-        if (
-          msgs.length &&
-          msgs[msgs.length - 1].role === "assistant" &&
-          !msgs[msgs.length - 1].content
-        ) {
-          msgs.pop();
+        if (!msgs.length || msgs[msgs.length - 1].role !== "assistant") {
+          msgs.push({ role: "assistant", content: "", timestamp: Date.now() });
         }
-        const next = {
-          ...(prev as Chat),
-          messages: [...msgs, assistantPlaceholder],
-        };
-        mirrorMessages(prev._id as string, next.messages);
+        const next = { ...(prev as Chat), messages: msgs };
+        mirrorMessages(prev._id as string, msgs);
         return next;
       });
 
-      // 4) call AI backend (unchanged)
-      const history =
-        chat?.messages?.map((m) => ({ role: m.role, content: m.content })) ??
-        [];
-      const apiMessages = [...history, { role: "user", content: promptCopy }];
+      // 3) call AI backend with abort handling
+      const baseHistory = (
+        Array.isArray(chat?.messages)
+          ? chat.messages
+          : selectedChat?.messages || []
+      )
+        .filter(
+          (m: any) => typeof m?.content === "string" && m.content.trim().length
+        )
+        .map((m: any) => ({ role: m.role, content: m.content }));
+
+      const apiMessages = [
+        ...baseHistory,
+        { role: "user", content: promptCopy },
+      ];
 
       const token = await getToken();
       const headers: Record<string, string> = {
@@ -193,10 +222,15 @@ export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
       };
       if (token) headers.Authorization = `Bearer ${token}`;
 
+      // abort previous
+      ctlRef.current?.abort();
+      ctlRef.current = new AbortController();
+
       const res = await fetch("/api/chat/ai", {
         method: "POST",
         headers,
         body: JSON.stringify({ messages: apiMessages, chatId: chat._id }),
+        signal: ctlRef.current.signal,
       });
 
       let data: any = null;
@@ -207,14 +241,30 @@ export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
       }
 
       if (!res.ok) {
+        removeAssistantPlaceholder();
         toast.error(data?.error ?? `AI request failed (${res.status})`);
         return;
       }
 
       const full = typeof data?.content === "string" ? data.content : "";
-      if (!full.trim()) return;
+      if (!full.trim()) {
+        removeAssistantPlaceholder();
+        return;
+      }
 
-      // stream into assistant bubble (unchanged)
+      // persist assistant
+      try {
+        const token2 = await getToken();
+        await axios.post(
+          `/api/messages/${chat._id}`,
+          { role: "assistant", content: full },
+          token2
+            ? { headers: { Authorization: `Bearer ${token2}` } }
+            : undefined
+        );
+      } catch {}
+
+      // fake stream
       const words = full.split(" ");
       let running = "";
       const pushChunk = (i: number) => {
@@ -224,36 +274,27 @@ export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
         setSelectedChat((prev) => {
           if (!prev) return prev;
           const msgs = [...prev.messages];
-          let found = false;
           for (let j = msgs.length - 1; j >= 0; j--) {
             if (msgs[j].role === "assistant") {
               msgs[j] = { ...msgs[j], content: running };
-              found = true;
               break;
             }
           }
-          if (!found) {
-            msgs.push({
-              role: "assistant",
-              content: running,
-              timestamp: Date.now(),
-            });
-          }
           const next = { ...(prev as Chat), messages: msgs };
-          mirrorMessages(prev._id as string, next.messages);
+          mirrorMessages(prev._id as string, msgs);
           return next;
         });
 
         setTimeout(() => requestAnimationFrame(() => pushChunk(i + 1)), 30);
       };
       requestAnimationFrame(() => pushChunk(0));
-    } catch (err: unknown) {
+    } catch (err: any) {
+      if (err?.name === "AbortError") return; // user sent a new prompt; ignore
+      removeAssistantPlaceholder();
       const msg =
-        (err as any)?.response?.data?.message ||
-        (err as Error)?.message ||
-        "Unknown error";
+        err?.response?.data?.message || err?.message || "Unknown error";
       toast.error(msg);
-      setPrompt(promptCopy); // restore input
+      setPrompt(promptCopy);
     } finally {
       setIsLoading(false);
       sendingRef.current = false;
@@ -269,6 +310,7 @@ export default function PromptBox({ isLoading, setIsLoading }: PromptBoxProps) {
       } bg-[#404045] p-4 rounded-3xl mt-4 transition-all`}
     >
       <textarea
+        ref={taRef}
         onKeyDown={handleKeyDown}
         className="outline-none w-full resize-none overflow-hidden break-words bg-transparent"
         rows={2}

@@ -23,7 +23,7 @@ const defaultValue: AppContextType = {
   setSelectedChat: () => {},
   fetchUsersChats: async () => {},
   createNewChat: async () => {},
-  selectChatById: async () => {}, // 👈 new
+  selectChatById: async () => {},
 };
 
 export const AppContext = createContext<AppContextType>(defaultValue);
@@ -99,7 +99,6 @@ export const AppContextProvider = ({ children }: AppContextProviderProps) => {
     }
   };
 
-  // 👇 NEW: fetch the full chat (with messages) by id
   const selectChatById = async (id: string): Promise<void> => {
     // optimistic: show whatever we already have
     const existing = chats.find((c) => String(c._id) === String(id)) ?? null;
@@ -158,7 +157,7 @@ export const AppContextProvider = ({ children }: AppContextProviderProps) => {
     setSelectedChat,
     fetchUsersChats,
     createNewChat,
-    selectChatById, // 👈 expose
+    selectChatById,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

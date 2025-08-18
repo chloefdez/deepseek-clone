@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { env } from "@/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 20;
 
 const DEEPSEEK_BASE = "https://api.deepseek.com/v1/chat/completions";
+
+type InMessage = {
+  role: "user" | "assistant" | "system";
+  content: string;
+};
 
 export async function POST(req: Request) {
   try {
@@ -14,29 +20,31 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // env.DEEPSEEK_API_KEY is validated by zod in src/env.ts
     const body = await req.json().catch(() => null);
-    const rawMessages = Array.isArray(body?.messages) ? body.messages : null;
-    if (!rawMessages) {
+    const rawMessages: unknown = body?.messages;
+
+    if (!Array.isArray(rawMessages)) {
       return NextResponse.json(
         { error: "messages[] (role/content) is required" },
         { status: 400 }
       );
     }
 
-    const messages = rawMessages.map((m: any) => ({
+    const messages: InMessage[] = rawMessages.map((m: any) => ({
       role:
         m?.role === "assistant" || m?.role === "system" ? m.role : "user",
       content: String(m?.content ?? ""),
     }));
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
+    const timer = setTimeout(() => controller.abort(), 15_000);
 
-    const res = await fetch(DEEPSEEK_BASE, {
+    const upstream = await fetch(DEEPSEEK_BASE, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY ?? ""}`,
+        Authorization: `Bearer ${env.DEEPSEEK_API_KEY}`, 
       },
       body: JSON.stringify({
         model: "deepseek-chat",
@@ -44,25 +52,26 @@ export async function POST(req: Request) {
         temperature: 0.7,
       }),
       signal: controller.signal,
+      cache: "no-store",
     }).catch((e) => {
       throw new Error(`Network error to DeepSeek: ${e?.message ?? e}`);
     });
+
     clearTimeout(timer);
 
-    if (!res.ok) {
+    if (!upstream.ok) {
       let errJson: any = null;
       try {
-        errJson = await res.json();
-      } catch {
-      }
+        errJson = await upstream.json();
+      } catch {}
       const reason =
         errJson?.error?.message ||
         errJson?.error ||
-        `${res.status} ${res.statusText}`;
-      return NextResponse.json({ error: reason }, { status: res.status });
+        `${upstream.status} ${upstream.statusText}`;
+      return NextResponse.json({ error: reason }, { status: upstream.status });
     }
 
-    const json = await res.json();
+    const json = await upstream.json();
     const content =
       json?.choices?.[0]?.message?.content ??
       json?.choices?.[0]?.delta?.content ??
@@ -76,7 +85,7 @@ export async function POST(req: Request) {
         { status: 504 }
       );
     }
-    console.error("/api/chat/ai fetch error:", err);
+    console.error("/api/chat/ai error:", err);
     return NextResponse.json(
       { error: err?.message ?? "Server error" },
       { status: 500 }

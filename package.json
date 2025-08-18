@@ -2,8 +2,9 @@
   "name": "deepseek-clone",
   "version": "0.1.0",
   "private": true,
-  "engines": { "node": "20.x" },
-
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
@@ -21,7 +22,8 @@
     "react-dom": "19.1.0",
     "react-hot-toast": "^2.5.2",
     "react-markdown": "^10.1.0",
-    "svix": "^1.69.0"
+    "svix": "^1.69.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
