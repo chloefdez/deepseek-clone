@@ -5,40 +5,21 @@ import Sidebar from "@/components/Sidebar";
 import PromptBox from "@/components/PromptBox";
 import MessageArea from "@/components/MessageArea";
 import { assets } from "@/assets/assets";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAppContext } from "@/context/AppContext";
 
 export default function ClientShell() {
   const [expand, setExpand] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-
-  // Home mode starts true on hard refresh so you get the welcome screen.
-  const [homeMode, setHomeMode] = useState(true);
-  const didInit = useRef(false);
-
   const { selectedChat, setSelectedChat } = useAppContext();
 
-  // On first mount, clear any preselected chat so the welcome shows.
+  // On hard refresh, show the welcome screen (clear selection)
   useEffect(() => {
-    if (didInit.current) return;
-    didInit.current = true;
     setSelectedChat(undefined as any);
-  }, [setSelectedChat]);
-
-  // Listen for “enter/exit home” events fired by Sidebar / PromptBox.
-  useEffect(() => {
-    const exit = () => setHomeMode(false);
-    const enter = () => setHomeMode(true);
-    window.addEventListener("exit-home", exit);
-    window.addEventListener("enter-home", enter);
-    return () => {
-      window.removeEventListener("exit-home", exit);
-      window.removeEventListener("enter-home", enter);
-    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // IMPORTANT: don't depend on messages here — if a chat is selected, show the chat UI.
-  const showHome = homeMode || !selectedChat?._id;
+  const showHome = !selectedChat?._id;
 
   return (
     <div className="flex h-dvh bg-[#292a2d] text-white">

@@ -1,11 +1,23 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import axios from "axios";
 import toast from "react-hot-toast";
 import { useAuth } from "@clerk/nextjs";
 import { useAppContext } from "@/context/AppContext";
 import type { Chat } from "@/context/types";
+
+/** Shows a toast only if the op takes > delay ms. */
+function savingToast(label = "Saving…", delay = 400) {
+  let toastId: string | null = null;
+  const timer = setTimeout(() => {
+    toastId = toast.loading(label);
+  }, delay);
+  return () => {
+    clearTimeout(timer);
+    if (toastId) toast.dismiss(toastId);
+  };
+}
 
 type ChatLabelProps = {
   id: string;
@@ -36,11 +48,15 @@ export default function ChatLabel({
   const { chats, selectedChat, setSelectedChat, setChats } = useAppContext();
   const { getToken } = useAuth();
 
+  const getAuthHeaders = useCallback(async () => {
+    const token = await getToken();
+    return token ? { Authorization: `Bearer ${token}` } : undefined;
+  }, [getToken]);
+
   const chat = Array.isArray(chats)
     ? (chats as any[]).find((c) => String(c._id) === String(id))
     : null;
 
-  // ===== Title & preview =====
   const explicit =
     (chat?.title && chat.title.trim?.()) ||
     (chat?.name && chat.name.trim?.()) ||
@@ -66,7 +82,6 @@ export default function ChatLabel({
 
   const isActive = selectedChat?._id === id;
 
-  // ===== Inline rename state =====
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -83,7 +98,6 @@ export default function ChatLabel({
     }
   };
 
-  // ===== Actions =====
   const doRename = async (newName: string) => {
     const trimmed = newName.trim();
     if (!trimmed || trimmed === title) {
@@ -92,7 +106,6 @@ export default function ChatLabel({
       return;
     }
 
-    // optimistic update
     const now = new Date();
     const prevChats = chats as Chat[];
     const prevSel = selectedChat;
@@ -123,14 +136,15 @@ export default function ChatLabel({
     );
 
     try {
-      const token = await getToken();
+      const headers = await getAuthHeaders();
+      const dismiss = savingToast();
       await axios.post(
         "/api/chat/rename",
         { chatId: id, name: trimmed },
-        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+        { headers }
       );
+      dismiss();
     } catch (err: any) {
-      // rollback
       setChats(prevChats as any);
       setSelectedChat(prevSel as any);
       toast.error(
@@ -144,7 +158,6 @@ export default function ChatLabel({
   const doDelete = async () => {
     if (!confirm("Delete this chat? This cannot be undone.")) return;
 
-    // optimistic: remove from list, clear selection if needed
     const prevChats = chats as Chat[];
     const prevSel = selectedChat;
     setChats((prev) =>
@@ -154,22 +167,16 @@ export default function ChatLabel({
     );
     if (String(prevSel?._id) === id) {
       setSelectedChat(undefined as any);
-      if (typeof window !== "undefined")
-        window.dispatchEvent(new Event("enter-home"));
     }
-
     closeMenu();
 
     try {
-      const token = await getToken();
-      await axios.post(
-        "/api/chat/delete",
-        { chatId: id },
-        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
-      );
+      const headers = await getAuthHeaders();
+      const dismiss = savingToast();
+      await axios.post("/api/chat/delete", { chatId: id }, { headers });
+      dismiss();
       toast.success("Deleted");
     } catch (err: any) {
-      // rollback
       setChats(prevChats as any);
       setSelectedChat(prevSel as any);
       toast.error(
@@ -178,7 +185,6 @@ export default function ChatLabel({
     }
   };
 
-  // ===== Render =====
   return (
     <div
       onClick={handleSelect}
@@ -187,6 +193,7 @@ export default function ChatLabel({
       }`}
       title={title}
       aria-current={isActive ? "page" : undefined}
+      data-test-id="chat-label"
     >
       <div className="min-w-0 flex-1">
         {editing ? (

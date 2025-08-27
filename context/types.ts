@@ -1,30 +1,33 @@
-import type { UserResource } from "@clerk/types";
-
 export type Message = {
   role: "user" | "assistant";
   content: string;
-  timestamp: number;
+  timestamp?: number;
 };
 
 export type Chat = {
   _id: string;
-  userId?: string;
   title?: string;
   name?: string;
   messages: Message[];
-  createdAt?: string | Date;
   updatedAt?: string | Date;
 };
 
 export type AppContextType = {
   isLoading: boolean;
   setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
-  user: UserResource | null | undefined;
+  user: any | null;
+
   chats: Chat[];
   setChats: React.Dispatch<React.SetStateAction<Chat[]>>;
-  selectedChat: Chat | null;
-  setSelectedChat: React.Dispatch<React.SetStateAction<Chat | null>>;
+
+  selectedChat: Chat | null | undefined;
+  setSelectedChat: React.Dispatch<
+    React.SetStateAction<Chat | null | undefined>
+  >;
+
   fetchUsersChats: () => Promise<void>;
   createNewChat: () => Promise<void>;
+
+  /** NOTE: pure local select (no network). Sidebar fetches messages. */
   selectChatById: (id: string) => void;
 };

@@ -10,72 +10,59 @@ import {
   ReactNode,
 } from "react";
 import toast from "react-hot-toast";
-
 import type { AppContextType, Chat } from "./types";
 
 const defaultValue: AppContextType = {
   isLoading: false,
   setIsLoading: () => {},
   user: null,
+
   chats: [],
   setChats: () => {},
-  selectedChat: null,
+
+  selectedChat: undefined,
   setSelectedChat: () => {},
+
   fetchUsersChats: async () => {},
   createNewChat: async () => {},
-  selectChatById: async () => {},
+  selectChatById: () => {},
 };
 
 export const AppContext = createContext<AppContextType>(defaultValue);
 export const useAppContext = () => useContext(AppContext);
 
-type AppContextProviderProps = {
-  children: ReactNode;
-};
+type Props = { children: ReactNode };
 
-function tsOrZero(x?: string | Date) {
-  if (!x) return 0;
-  const n = new Date(x).getTime();
-  return Number.isFinite(n) ? n : 0;
-}
-
-export const AppContextProvider = ({ children }: AppContextProviderProps) => {
+export const AppContextProvider = ({ children }: Props) => {
   const [isLoading, setIsLoading] = useState(false);
   const [chats, setChats] = useState<Chat[]>([]);
-  const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
+  const [selectedChat, setSelectedChat] = useState<Chat | null | undefined>(
+    undefined
+  );
+
   const { isLoaded, isSignedIn, user } = useUser();
   const { getToken } = useAuth();
 
-  const fetchUsersChats = async (): Promise<void> => {
+  async function fetchUsersChats() {
+    setIsLoading(true);
     try {
-      const token = await getToken();
+      const token = await getToken?.();
       const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
 
-      const { data } = await axios.get("/api/chat/get", { headers });
+      const res = await axios.get("/api/chat/get", { headers });
+      const raw = res.data?.data ?? res.data ?? [];
+      const list: Chat[] = Array.isArray(raw) ? raw : [];
 
-      if (data?.success) {
-        const list: Chat[] = Array.isArray(data.data) ? data.data : [];
-
-        if (list.length === 0) {
-          await createNewChat();
-          return;
-        }
-
-        list.sort((a, b) => tsOrZero(b.updatedAt) - tsOrZero(a.updatedAt));
-
-        setChats(list);
-        setSelectedChat(list[0] ?? null);
-      } else {
-        toast.error(data?.message ?? "Failed to fetch chats");
-      }
-    } catch (error: any) {
+      // IMPORTANT: only setChats here; do NOT auto-select anything
+      setChats(list);
+    } catch (err: any) {
       toast.error(
-        error?.response?.data?.message ||
-          error.message ||
-          "Error fetching chats"
+        err?.response?.data?.message || err?.message || "Failed to load chats"
       );
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }
 
   const createNewChat = async (): Promise<void> => {
     try {
@@ -84,14 +71,31 @@ export const AppContextProvider = ({ children }: AppContextProviderProps) => {
       const token = await getToken();
       const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
 
-      const { data } = await axios.post("/api/chat/create", {}, { headers });
+      const res = await axios.post(
+        "/api/chat/create",
+        { title: "New chat" },
+        { headers }
+      );
 
-      if (!data?.success) {
-        toast.error(data?.message ?? "Failed to create chat");
+      const raw = res.data?.data ?? res.data?.chat ?? res.data;
+      const id = String(raw?._id ?? raw?.id ?? "");
+      if (!id) {
+        toast.error("Failed to create chat");
         return;
       }
 
-      await fetchUsersChats();
+      const newChat: Chat = {
+        ...(raw || {}),
+        _id: id,
+        title: raw?.title ?? "New chat",
+        name: raw?.name ?? raw?.title ?? "New chat",
+        messages: Array.isArray(raw?.messages) ? raw.messages : [],
+        updatedAt: new Date(),
+      };
+
+      setChats((prev) => [newChat, ...(Array.isArray(prev) ? prev : [])]);
+      // selection is handled by Sidebar after creation; keeping
+      // this pure avoids double-mount/race conditions
     } catch (error: any) {
       toast.error(
         error?.response?.data?.message || error.message || "Error creating chat"
@@ -99,52 +103,25 @@ export const AppContextProvider = ({ children }: AppContextProviderProps) => {
     }
   };
 
-  const selectChatById = async (id: string): Promise<void> => {
-    // optimistic: show whatever we already have
-    const existing = chats.find((c) => String(c._id) === String(id)) ?? null;
-    setSelectedChat(existing);
-
-    try {
-      const token = await getToken();
-      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-
-      const { data } = await axios.get("/api/chat/get", {
-        headers,
-        params: { id },
-      });
-
-      if (!data?.success) {
-        toast.error(data?.message ?? "Failed to load chat");
-        return;
-      }
-
-      const full: Chat = data.data;
-      setSelectedChat(full);
-      setChats((prev) =>
-        Array.isArray(prev)
-          ? prev.map((c) =>
-              String(c._id) === String(id) ? { ...c, ...full } : c
-            )
-          : prev
-      );
-    } catch (error: any) {
-      toast.error(
-        error?.response?.data?.message ||
-          error.message ||
-          "Error loading chat messages"
-      );
-    }
+  /** Pure local select. Sidebar is responsible for fetching messages. */
+  const selectChatById = (id: string): void => {
+    const found =
+      (Array.isArray(chats) ? chats : []).find(
+        (c) => String(c._id) === String(id)
+      ) ?? null;
+    setSelectedChat(found);
   };
 
+  // Auth gate: load/clear chats on sign-in state changes
   useEffect(() => {
     if (!isLoaded) return;
-
     if (isSignedIn) {
       fetchUsersChats();
     } else {
       setChats([]);
-      setSelectedChat(null);
+      setSelectedChat(undefined);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded, isSignedIn, user?.id]);
 
   const value: AppContextType = {

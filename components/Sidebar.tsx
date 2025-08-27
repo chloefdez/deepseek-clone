@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { assets } from "@/assets/assets";
@@ -37,10 +37,16 @@ export default function Sidebar({ expand, setExpand }: SidebarProps) {
   const [openMenu, setOpenMenu] = useState<{
     id: string | null;
     open: boolean;
-  }>({
-    id: null,
-    open: false,
-  });
+  }>({ id: null, open: false });
+
+  // Prevent duplicate fetches if a user spam-clicks chats
+  const inFlight = useRef<Set<string>>(new Set());
+
+  // Headers helper for API calls in this component
+  const getAuthHeaders = useCallback(async () => {
+    const token = await getToken();
+    return token ? { Authorization: `Bearer ${token}` } : undefined;
+  }, [getToken]);
 
   const handleToggleMenu = (
     e: React.MouseEvent<HTMLDivElement | HTMLButtonElement>,
@@ -53,7 +59,6 @@ export default function Sidebar({ expand, setExpand }: SidebarProps) {
   };
   const handleCloseMenu = () => setOpenMenu({ id: null, open: false });
 
-  /** Small helper toast */
   function showLoginToast() {
     toast.custom((t) => (
       <div className="bg-[#1f1f22] text-white/90 border border-white/10 rounded-xl px-4 py-3 shadow-lg flex items-center gap-3">
@@ -80,9 +85,8 @@ export default function Sidebar({ expand, setExpand }: SidebarProps) {
   /** Logo → go home (clear selection + route to "/") */
   const goHome = () => {
     setSelectedChat(undefined as any);
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined")
       window.dispatchEvent(new Event("enter-home"));
-    }
     router.push("/");
   };
 
@@ -90,23 +94,24 @@ export default function Sidebar({ expand, setExpand }: SidebarProps) {
   const openChat = async (id: string) => {
     if (typeof window !== "undefined")
       window.dispatchEvent(new Event("exit-home"));
+
     try {
-      // optimistic select
+      // Optimistic select first for snappy UI
       selectChatById(id);
 
-      // if we already have messages, skip fetch
+      // If we already have messages, skip fetch
       const existing = (Array.isArray(chats) ? (chats as Chat[]) : []).find(
         (c) => String((c as any)?._id) === id
       );
       if (existing?.messages?.length) return;
 
-      const token = await getToken();
-      const res = await axios.get(
-        `/api/messages/${id}`,
-        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
-      );
+      if (inFlight.current.has(id)) return;
+      inFlight.current.add(id);
 
-      const msgs =
+      const headers = await getAuthHeaders();
+      const res = await axios.get(`/api/messages/${id}`, { headers });
+
+      const msgs: Message[] =
         res.data?.data ??
         res.data?.messages ??
         (Array.isArray(res.data) ? res.data : []) ??
@@ -125,49 +130,28 @@ export default function Sidebar({ expand, setExpand }: SidebarProps) {
           err?.message ||
           "Failed to load messages"
       );
+    } finally {
+      inFlight.current.delete(id);
     }
   };
 
-  /** Create a new chat on server, put it on top, select it */
-  const handleNewChat = async () => {
+  /** New Chat: make it PURE LOCAL. PromptBox will create on first submit. */
+  const handleNewChat = () => {
     if (!isSignedIn) {
       showLoginToast();
       return;
     }
 
-    try {
-      const token = await getToken();
-      const res = await axios.post(
-        "/api/chat/create",
-        { title: "New chat" },
-        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
-      );
+    // Clear current selection and focus the input; no server call here.
+    setSelectedChat(undefined as any);
 
-      const raw = res.data?.data ?? res.data?.chat ?? res.data;
-      const normId = raw?._id ?? raw?.id ?? null;
-      const newChat: Chat = {
-        ...(raw || {}),
-        _id: normId,
-        messages: Array.isArray(raw?.messages) ? raw.messages : [],
-        title: raw?.title ?? "New chat",
-        name: raw?.name ?? raw?.title ?? "New chat",
-        updatedAt: new Date(),
-      } as any;
-
-      if (!newChat._id) throw new Error("Failed to create chat (missing id)");
-
-      setChats((prev: Chat[]) => [
-        newChat,
-        ...(Array.isArray(prev) ? prev : []),
-      ]);
-      selectChatById(String(newChat._id));
-    } catch (err: any) {
-      toast.error(
-        err?.response?.data?.message ||
-          err?.message ||
-          "Could not create a new chat"
-      );
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("exit-home"));
+      window.dispatchEvent(new Event("focus-input"));
     }
+
+    // If you use a home route, keep this:
+    router.push("/");
   };
 
   const sorted = Array.isArray(chats)
@@ -357,23 +341,30 @@ export default function Sidebar({ expand, setExpand }: SidebarProps) {
           </div>
 
           <div
-            onClick={() => {
-              if (!user) openSignIn();
-            }}
-            className={`flex cursor-pointer items-center gap-3 p-2 text-sm text-white/60 ${
+            className={`flex items-center gap-3 p-2 text-sm text-white/60 ${
               expand ? "rounded-lg hover:bg-white/10" : "w-full justify-center"
             }`}
           >
             {user ? (
-              <UserButton />
-            ) : (
-              <Image
-                src={assets.profile_icon}
-                alt="profile"
-                className="w-7 h-7"
-                width={28}
-                height={28}
+              <UserButton
+                afterSignOutUrl="/"
+                appearance={{
+                  elements: {
+                    userButtonPopoverCard:
+                      "bg-[#1f1f22] text-white border border-white/10",
+                  },
+                }}
               />
+            ) : (
+              <div onClick={() => openSignIn()} className="cursor-pointer">
+                <Image
+                  src={assets.profile_icon}
+                  alt="profile"
+                  className="w-7 h-7"
+                  width={28}
+                  height={28}
+                />
+              </div>
             )}
             {expand && <span>My Profile</span>}
           </div>

@@ -37,27 +37,40 @@ export default function MessageArea() {
     const id = selectedChat?._id;
     if (!id) return;
 
+    // If we already have local messages (e.g., user just sent + typing dots), do not clobber.
+    const local = Array.isArray(selectedChat?.messages)
+      ? selectedChat!.messages
+      : [];
+    if (local.length > 0) return;
+
     let cancelled = false;
     (async () => {
       try {
         const { data } = await axios.get(`/api/messages/${id}`);
-        const msgs: Message[] = Array.isArray(data?.data) ? data.data : [];
+        const fetched: Message[] = Array.isArray(data?.data) ? data.data : [];
+
         if (cancelled) return;
 
-        // update selectedChat
-        setSelectedChat((prev) =>
-          prev && prev._id === id ? ({ ...prev, messages: msgs } as Chat) : prev
-        );
-        // mirror into chats[]
+        // Only set if we *still* don’t have local messages.
+        setSelectedChat((prev) => {
+          if (!prev || String(prev._id) !== String(id)) return prev;
+          if (Array.isArray(prev.messages) && prev.messages.length > 0)
+            return prev;
+          return { ...(prev as Chat), messages: fetched };
+        });
+
+        // Mirror into chats[]
         setChats((prev) =>
           Array.isArray(prev)
             ? prev.map((c) =>
-                c._id === id ? ({ ...c, messages: msgs } as Chat) : c
+                String(c._id) === String(id)
+                  ? ({ ...c, messages: fetched } as Chat)
+                  : c
               )
             : prev
         );
       } catch {
-        // ignore network hiccups; keep current UI
+        // ignore; keep current UI
       }
     })();
 
